@@ -83,41 +83,79 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
         constructor(apiKey) {
             super(apiKey);
             // Determine API URL based on free or pro key
-            this.apiUrl = apiKey.endsWith(":fx") ?
+            this.isFreeTier = apiKey.endsWith(":fx");
+            this.apiUrl = this.isFreeTier ?
                 'https://api-free.deepl.com/v2/translate' :
                 'https://api.deepl.com/v2/translate';
-            $.log(3, "DeepLService instance created.");
+            $.log(2, `DeepLService instance created. API Tier: ${this.isFreeTier ? 'Free' : 'Pro'}. URL: ${this.apiUrl}`);
         }
 
         async translate(text, fromLang, toLang, contextInfo = {}) {
             if (!this.apiKey) {
-                $.log(1, "DeepL API Key is missing.");
-                return text;
+                $.log(1, "DeepL API Key is missing for DeepLService.");
+                return { translatedText: text, error: "API key missing" }; // Return object with error
+            }
+            if (!text) {
+                return { translatedText: "", error: null }; // Nothing to translate
             }
 
-            const params = new URLSearchParams({
+            // DeepL expects uppercase language codes for source_lang if specified.
+            // For target_lang, it also expects uppercase.
+            // For auto-detection (fromLang is 'auto' or empty), don't send source_lang.
+            const bodyParams = {
                 auth_key: this.apiKey,
-                text: text,
-                source_lang: fromLang.toUpperCase(), // DeepL might expect uppercase
-                target_lang: toLang.toUpperCase(),
-                // Other DeepL specific params like formality, split_sentences, etc.
-            });
+                text: [text], // DeepL API expects text as an array of strings
+                target_lang: toLang.toUpperCase()
+            };
+
+            if (fromLang && fromLang.toLowerCase() !== 'auto') {
+                bodyParams.source_lang = fromLang.toUpperCase();
+            }
+
+            // Other useful parameters for DeepL:
+            // formality: "default", "more", "less" (depends on language pair)
+            // split_sentences: "0" (don't split), "1" (split - default), "nonewlines"
+            // preserve_formatting: "0" (default), "1"
+            // tag_handling: "xml" or "html" (if you want to send markup)
+            // Add more as needed via contextInfo or plugin params
+
+            const options = {
+                method: 'POST',
+                headers: {
+                    // DeepL uses x-www-form-urlencoded for POST, not application/json for the body itself
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams(bodyParams).toString()
+            };
+
+            $.log(3, `DeepL: Translating "${text}" from ${fromLang || 'auto'} to ${toLang}. Request body: ${options.body}`);
 
             try {
-                $.log(3, `DeepL: Translating "${text}" from ${fromLang} to ${toLang}`);
-                // const data = await this._fetch(this.apiUrl, {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                //     body: params
-                // });
-                // if (data && data.translations && data.translations.length > 0) {
-                //     return data.translations[0].text;
-                // }
-                // $.log(1, "DeepL: No translation found or malformed response.", data);
-                return `[DeepL:${toLang}] ${text}`; // Placeholder for async
+                const response = await fetch(this.apiUrl, options);
+
+                if (!response.ok) {
+                    let errorData = null;
+                    try {
+                        errorData = await response.json(); // DeepL often returns JSON error messages
+                        $.log(1, `DeepL API Error ${response.status}: ${response.statusText}`, errorData);
+                    } catch (e) {
+                        $.log(1, `DeepL API Error ${response.status}: ${response.statusText}. Response not JSON:`, await response.text());
+                    }
+                    return { translatedText: text, error: `DeepL API Error ${response.status}: ${errorData ? errorData.message : response.statusText}` };
+                }
+
+                const data = await response.json();
+
+                if (data && data.translations && data.translations.length > 0 && data.translations[0].text) {
+                    $.log(3, `DeepL: Successfully translated to "${data.translations[0].text}"`);
+                    return { translatedText: data.translations[0].text, error: null };
+                } else {
+                    $.log(1, "DeepL: No translation found in response or malformed response.", data);
+                    return { translatedText: text, error: "Malformed response from DeepL API." };
+                }
             } catch (error) {
-                $.log(1, "DeepL API error:", error);
-                return text;
+                $.log(1, "DeepL: Network or other error during API call:", error);
+                return { translatedText: text, error: `Network error or invalid response: ${error.message}` };
             }
         }
     }

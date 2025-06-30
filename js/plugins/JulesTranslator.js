@@ -309,11 +309,20 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
             // Placeholder for initializing machine translation services
             if ($.machineService === 'google' && $.googleApiKey) {
-                // this.translationServices.google = new GoogleTranslateService($.googleApiKey);
-                $.log(2, 'Google Translate service placeholder initialized.');
+                // Ensure GoogleTranslateService is defined (would be in TranslationServices.js)
+                if ($.TranslationServices && $.TranslationServices.GoogleTranslateService) {
+                    this.translationServices.google = new $.TranslationServices.GoogleTranslateService($.googleApiKey);
+                    $.log(2, 'Google Translate service instance created.');
+                } else {
+                    $.log(1, 'GoogleTranslateService class not found, cannot initialize.');
+                }
             } else if ($.machineService === 'deepl' && $.deepLApiKey) {
-                // this.translationServices.deepl = new DeepLService($.deepLApiKey);
-                $.log(2, 'DeepL service placeholder initialized.');
+                if ($.TranslationServices && $.TranslationServices.DeepLService) {
+                    this.translationServices.deepl = new $.TranslationServices.DeepLService($.deepLApiKey);
+                    // DeepLService constructor already logs its creation.
+                } else {
+                    $.log(1, 'DeepLService class not found, cannot initialize.');
+                }
             }
 
             $.log(2, `JulesTranslator initialized. Target Lang: ${$.targetLanguage}, Original Lang: ${$.gameOriginalLanguage}`);
@@ -330,38 +339,100 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                 return originalText;
             }
 
+            // Unique prefix to identify strings that have already been processed by this function
+            const PROCESSED_MARKER = "@@JT@@";
+
+            // If text already has the marker, it means it was translated (or attempted) by a higher-level hook.
+            // Return it as is, removing the marker for final display (or let drawing functions handle it).
+            // For now, we'll assume the marker is internal and should be stripped if found.
+            if (originalText.startsWith(PROCESSED_MARKER)) {
+                $.log(3, `Skipping translation for already processed text: "${originalText}"`);
+                return originalText.substring(PROCESSED_MARKER.length);
+            }
+
             // 1. Check cache
             if (this.cache && this.cache.has(trimmedText)) {
-                $.log(3, `Cache hit for: "${trimmedText}" -> "${this.cache.get(trimmedText)}"`);
-                return this.cache.get(trimmedText);
+                const cachedResult = this.cache.get(trimmedText);
+                $.log(3, `Cache hit for: "${trimmedText}" -> "${cachedResult}"`);
+                // Ensure cached results also have the marker if they were actual translations
+                // and not just fallbacks to original. This depends on what's stored in cache.
+                // For now, assume cache stores final displayable string.
+                return cachedResult;
             }
 
             // 2. Check manual translations
             if (this.manualTranslations[trimmedText]) {
                 const manualTranslation = this.manualTranslations[trimmedText];
                 $.log(3, `Manual hit for: "${trimmedText}" -> "${manualTranslation}"`);
-                if (this.cache) this.cache.set(trimmedText, manualTranslation);
-                return manualTranslation;
+                const resultToCache = PROCESSED_MARKER + manualTranslation;
+                if (this.cache) this.cache.set(trimmedText, resultToCache); // Cache with marker
+                return manualTranslation; // Return without marker for display
             }
 
             // 3. Machine translation (Placeholder - actual call would be async)
-            let translatedText = trimmedText; // Fallback to original if no service or error
+            let wasMachineTranslatedAttempted = false;
+            let immediateReturnValue = trimmedText; // Default to original text if no translation path taken
+
             if ($.machineService && this.translationServices[$.machineService]) {
-                $.log(3, `Machine translating: "${trimmedText}" via ${$.machineService}`);
-                // translatedText = await this.translationServices[$.machineService].translate(trimmedText, $.gameOriginalLanguage, $.targetLanguage, contextInfo);
-                // For initial testing of hooks, let's make it very clear:
-                translatedText = `[T] ${trimmedText}`;
-                $.log(3, `No configured/successful machine translation for "${trimmedText}", returning placeholder.`);
-            } else if ($.machineService) { // This case means service was selected but not configured/failed
-                translatedText = `[T] ${trimmedText}`; // Still use placeholder
+                const service = this.translationServices[$.machineService];
+                wasMachineTranslatedAttempted = true;
+                $.log(3, `Attempting machine translation for: "${trimmedText}" via ${$.machineService}`);
+
+                // Immediately return a placeholder or original text for synchronous game flow
+                immediateReturnValue = `[T] ${trimmedText}`; // Placeholder
+
+                // Trigger asynchronous translation
+                service.translate(trimmedText, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
+                    .then(result => {
+                        if (result && result.error === null && result.translatedText !== trimmedText) {
+                            $.log(2, `Machine translation successful for "${trimmedText}" -> "${result.translatedText}"`);
+                            if (this.cache) {
+                                this.cache.set(trimmedText, PROCESSED_MARKER + result.translatedText);
+                            }
+                            // TODO (Advanced): Consider if/how to refresh currently displayed text if possible
+                        } else if (result && result.error) {
+                            $.log(1, `Machine translation error for "${trimmedText}": ${result.error}`);
+                            // Cache the error or original text with marker to prevent retries for a while?
+                            // For now, just logs. Next time it will try again if not manually translated.
+                            if (this.cache) { // Cache the placeholder to avoid re-hitting failing API immediately
+                                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
+                            }
+                        } else {
+                             // Service might return original if it can't translate or no change
+                            $.log(3, `Machine translation returned original or no change for "${trimmedText}".`);
+                            if (this.cache) {
+                                this.cache.set(trimmedText, PROCESSED_MARKER + trimmedText);
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        $.log(1, `Unhandled error during machine translation call for "${trimmedText}":`, error);
+                        if (this.cache) { // Cache the placeholder to avoid re-hitting failing API immediately
+                            this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
+                        }
+                    });
+
+                // Return the placeholder for now.
+                // The actual translated text will be available from cache on next encounter.
+                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue); // Cache placeholder
+                return immediateReturnValue;
+
+            } else if ($.machineService) {
                 $.log(1, `Machine translation service "${$.machineService}" selected but not properly configured or API key missing. Using placeholder for "${trimmedText}".`);
-            } else { // No machine service selected at all
-                 translatedText = `[T] ${trimmedText}`; // Use placeholder
-                 $.log(3, `No machine translation service selected. Using placeholder for "${trimmedText}".`);
+                immediateReturnValue = `[T] ${trimmedText}`; // Placeholder
+                wasMachineTranslatedAttempted = true; // Count as an attempt
+            } else {
+                $.log(3, `No machine translation service selected. Passing through: "${trimmedText}".`);
+                // No MT attempt, just original text. immediateReturnValue is already trimmedText.
             }
 
-            if (this.cache) this.cache.set(trimmedText, translatedText);
-            return translatedText;
+            // If code reaches here, it means no manual translation was found, AND
+            // either no machine translation service was configured/attempted, or we are returning a placeholder.
+            // Cache the result (which might be original text or a [T] placeholder) with the processed marker.
+            if (this.cache) {
+                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
+            }
+            return immediateReturnValue;
         },
 
         loadManualTranslations: function() {
