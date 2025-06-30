@@ -742,23 +742,29 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             }
 
             if (systemData.terms) {
-                const terms = systemData.terms;
-                ['basic', 'commands', 'params', 'messages'].forEach(category => {
-                    if (terms[category]) {
-                        if (Array.isArray(terms[category])) {
-                            terms[category] = terms[category].map((term, index) =>
-                                term ? this.translate(term, { context: `$dataSystem.terms.${category}[${index}]` }) : term
-                            );
-                        } else if (typeof terms[category] === 'object' && terms[category] !== null) {
-                            // E.g. terms.messages can be an object of key-value pairs
-                            Object.keys(terms[category]).forEach(key => {
-                                if (terms[category][key]) {
-                                    terms[category][key] = this.translate(terms[category][key], { context: `$dataSystem.terms.${category}.${key}` });
+                for (const categoryKey in systemData.terms) {
+                    if (Object.prototype.hasOwnProperty.call(systemData.terms, categoryKey)) {
+                        const categoryValue = systemData.terms[categoryKey];
+                        const termContextBase = `$dataSystem.terms.${categoryKey}`;
+
+                        if (Array.isArray(categoryValue)) {
+                            systemData.terms[categoryKey] = categoryValue.map((term, index) => {
+                                if (typeof term === 'string' && term) { // Ensure term is a non-empty string
+                                    return this.translate(term, { context: `${termContextBase}[${index}]` });
                                 }
+                                return term;
                             });
+                        } else if (typeof categoryValue === 'object' && categoryValue !== null) {
+                            for (const messageKey in categoryValue) {
+                                if (Object.prototype.hasOwnProperty.call(categoryValue, messageKey) &&
+                                    typeof categoryValue[messageKey] === 'string' && categoryValue[messageKey]) { // Ensure non-empty string
+                                    categoryValue[messageKey] = this.translate(categoryValue[messageKey], { context: `${termContextBase}.${messageKey}` });
+                                }
+                            }
                         }
+                        // Note: Direct string properties under systemData.terms are not standard in MV/MZ default data.
                     }
-                });
+                }
             }
 
             ['weaponTypes', 'armorTypes', 'skillTypes', 'elements'].forEach(arrayName => {
