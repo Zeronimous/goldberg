@@ -492,9 +492,109 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
         // Placeholder for translateDataObject - to be filled by DataManagerHooks
         translateDataObject: function(fileName, dataObject, globalVarName) {
-            $.log(3, `translateDataObject called for ${fileName} (${globalVarName}), but not yet implemented.`);
-            // Actual implementation will be in JulesTranslator_DataManagerHooks.js
-            // and will use $.translateDataFiles to check if translation for this file type is enabled.
+            if (!dataObject) {
+                $.log(1, `translateDataObject: Received null dataObject for ${fileName}. Skipping.`);
+                return;
+            }
+            $.log(3, `translateDataObject attempting for ${fileName} (Global: ${globalVarName})`);
+
+            // Determine which specific translation function to call based on the file name or global variable
+            switch (globalVarName) { // Using globalVarName is often more reliable for system-loaded files
+                case '$dataSystem':
+                    if ($.translateDataFiles.system) {
+                        this.translateSystemData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for System.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataItems':
+                    if ($.translateDataFiles.items) {
+                        this.translateItemsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Items.json (disabled by parameters).`);
+                    }
+                    break;
+                // Add cases for other data files (Actors, Skills, etc.) here
+                default:
+                    $.log(3, `translateDataObject: No specific translator for ${globalVarName} (${fileName}) yet.`);
+                    break;
+            }
+        },
+
+        translateSystemData: function(systemData) {
+            $.log(3, "Translating System Data ($dataSystem)...");
+
+            if (systemData.gameTitle) {
+                systemData.gameTitle = this.translate(systemData.gameTitle, { context: '$dataSystem.gameTitle' });
+            }
+
+            if (systemData.terms) {
+                const terms = systemData.terms;
+                ['basic', 'commands', 'params', 'messages'].forEach(category => {
+                    if (terms[category]) {
+                        if (Array.isArray(terms[category])) {
+                            terms[category] = terms[category].map((term, index) =>
+                                term ? this.translate(term, { context: `$dataSystem.terms.${category}[${index}]` }) : term
+                            );
+                        } else if (typeof terms[category] === 'object' && terms[category] !== null) {
+                            // E.g. terms.messages can be an object of key-value pairs
+                            Object.keys(terms[category]).forEach(key => {
+                                if (terms[category][key]) {
+                                    terms[category][key] = this.translate(terms[category][key], { context: `$dataSystem.terms.${category}.${key}` });
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+
+            ['weaponTypes', 'armorTypes', 'skillTypes', 'elements'].forEach(arrayName => {
+                if (systemData[arrayName] && Array.isArray(systemData[arrayName])) {
+                    systemData[arrayName] = systemData[arrayName].map((typeName, index) =>
+                        typeName ? this.translate(typeName, { context: `$dataSystem.${arrayName}[${index}]` }) : typeName
+                    );
+                }
+            });
+
+            // Attack Motions (some might have names or messages if custom) - typically not text-heavy
+            // Party Members (initial party - names should be from $dataActors)
+            // Title Commands (window positions, etc. - names handled by Window_TitleCommand hook)
+            // ... and other fields as necessary
+
+            $.log(3, "Finished translating System Data.");
+        },
+
+        translateItemsData: function(itemsData) {
+            $.log(3, "Translating Items Data ($dataItems)...");
+            // $dataItems is an array, index 0 is null.
+            for (let i = 1; i < itemsData.length; i++) {
+                const item = itemsData[i];
+                if (item) {
+                    const baseContext = `$dataItems[${i}]`;
+                    if (item.name) {
+                        item.name = this.translate(item.name, { context: `${baseContext}.name` });
+                    }
+                    if (item.description) {
+                        item.description = this.translate(item.description, { context: `${baseContext}.description` });
+                    }
+                    // Messages for common event items (MV specific, often unused in MZ, but good to cover)
+                    if (item.message1) {
+                        item.message1 = this.translate(item.message1, { context: `${baseContext}.message1` });
+                    }
+                    if (item.message2) {
+                        item.message2 = this.translate(item.message2, { context: `${baseContext}.message2` });
+                    }
+                    if (item.message3) { // MZ might not have message3, message4 directly on item
+                        item.message3 = this.translate(item.message3, { context: `${baseContext}.message3` });
+                    }
+                    if (item.message4) {
+                        item.message4 = this.translate(item.message4, { context: `${baseContext}.message4` });
+                    }
+                    // Note field can also contain text, but usually for plugin parameters, not direct display.
+                    // Translating note tags would require specific parsing based on known tags.
+                }
+            }
+            $.log(3, "Finished translating Items Data.");
         },
 
         // Placeholder for translateEventList - to be filled by DataManagerHooks
