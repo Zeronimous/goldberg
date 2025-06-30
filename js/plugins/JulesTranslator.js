@@ -514,7 +514,63 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                         $.log(2, `Skipping translation for Items.json (disabled by parameters).`);
                     }
                     break;
-                // Add cases for other data files (Actors, Skills, etc.) here
+                case '$dataActors':
+                    if ($.translateDataFiles.actors) {
+                        this.translateActorsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Actors.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataSkills':
+                    if ($.translateDataFiles.skills) {
+                        this.translateSkillsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Skills.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataClasses':
+                    if ($.translateDataFiles.classes) {
+                        this.translateClassesData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Classes.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataStates':
+                    if ($.translateDataFiles.states) {
+                        this.translateStatesData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for States.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataEnemies':
+                    if ($.translateDataFiles.enemies) {
+                        this.translateEnemiesData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Enemies.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataArmors':
+                    if ($.translateDataFiles.armors) {
+                        this.translateArmorsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Armors.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataWeapons':
+                    if ($.translateDataFiles.weapons) {
+                        this.translateWeaponsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Weapons.json (disabled by parameters).`);
+                    }
+                    break;
+                case '$dataMapInfos':
+                    if ($.translateDataFiles.mapInfos) {
+                        this.translateMapInfosData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for MapInfos.json (disabled by parameters).`);
+                    }
+                    break;
+                // Add cases for other data files here
                 default:
                     if (fileName && fileName.startsWith('Map') && fileName.endsWith('.json')) {
                         if ($.translateDataFiles.eventText) { // Check if event text translation is enabled
@@ -609,6 +665,160 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                 }
             }
             $.log(3, "Finished translating Items Data.");
+        },
+
+        translateActorsData: function(actorsData) {
+            $.log(3, "Translating Actors Data ($dataActors)...");
+            // $dataActors is an array, index 0 is null.
+            for (let i = 1; i < actorsData.length; i++) {
+                const actor = actorsData[i];
+                if (actor) {
+                    const baseContext = `$dataActors[${i}]`;
+                    if (actor.name) {
+                        actor.name = this.translate(actor.name, { context: `${baseContext}.name` });
+                    }
+                    if (actor.nickname) {
+                        actor.nickname = this.translate(actor.nickname, { context: `${baseContext}.nickname` });
+                    }
+                    if (actor.profile) {
+                        actor.profile = this.translate(actor.profile, { context: `${baseContext}.profile` });
+                    }
+                }
+            }
+            $.log(3, "Finished translating Actors Data.");
+        },
+
+        translateSkillsData: function(skillsData) {
+            $.log(3, "Translating Skills Data ($dataSkills)...");
+            // $dataSkills is an array, index 0 is null.
+            for (let i = 1; i < skillsData.length; i++) {
+                const skill = skillsData[i];
+                if (skill) {
+                    const baseContext = `$dataSkills[${i}]`;
+                    if (skill.name) {
+                        skill.name = this.translate(skill.name, { context: `${baseContext}.name` });
+                    }
+                    if (skill.description) {
+                        skill.description = this.translate(skill.description, { context: `${baseContext}.description` });
+                    }
+                    if (skill.message1) { // Message when skill is used
+                        skill.message1 = this.translate(skill.message1, { context: `${baseContext}.message1` });
+                    }
+                    if (skill.message2) { // Second part of message (e.g., for certain skill types)
+                        skill.message2 = this.translate(skill.message2, { context: `${baseContext}.message2` });
+                    }
+                    // In MZ, message3 and message4 are "Ally Fainted" and "Enemy Fainted"
+                    if (skill.message3) {
+                        skill.message3 = this.translate(skill.message3, { context: `${baseContext}.message3` });
+                    }
+                    if (skill.message4) {
+                        skill.message4 = this.translate(skill.message4, { context: `${baseContext}.message4` });
+                    }
+                }
+            }
+            $.log(3, "Finished translating Skills Data.");
+        },
+
+        translateClassesData: function(classesData) {
+            $.log(3, "Translating Classes Data ($dataClasses)...");
+            // $dataClasses is an array, index 0 is null.
+            for (let i = 1; i < classesData.length; i++) {
+                const classData = classesData[i];
+                if (classData && classData.name) {
+                    classData.name = this.translate(classData.name, { context: `$dataClasses[${i}].name` });
+                }
+            }
+            $.log(3, "Finished translating Classes Data.");
+        },
+
+        translateStatesData: function(statesData) {
+            $.log(3, "Translating States Data ($dataStates)...");
+            // $dataStates is an array, index 0 is null.
+            for (let i = 1; i < statesData.length; i++) {
+                const state = statesData[i];
+                if (state) {
+                    const baseContext = `$dataStates[${i}]`;
+                    if (state.name) {
+                        state.name = this.translate(state.name, { context: `${baseContext}.name` });
+                    }
+                    if (state.message1) { // Actor is [state name]
+                        state.message1 = this.translate(state.message1, { context: `${baseContext}.message1` });
+                    }
+                    if (state.message2) { // [Actor name] is still [state name]
+                        state.message2 = this.translate(state.message2, { context: `${baseContext}.message2` });
+                    }
+                    if (state.message3) { // [Actor name] is no longer [state name]
+                        state.message3 = this.translate(state.message3, { context: `${baseContext}.message3` });
+                    }
+                    if (state.message4) { // Message when inflicted by skill/item
+                        state.message4 = this.translate(state.message4, { context: `${baseContext}.message4` });
+                    }
+                    // MZ also has messageInflicted, messageAlready, messageProtected, messageEmerged, messageDisappeared
+                    // These would need to be added if targeting MZ specifically for these fields.
+                    // For now, sticking to common MV fields that are also mostly in MZ.
+                }
+            }
+            $.log(3, "Finished translating States Data.");
+        },
+
+        translateEnemiesData: function(enemiesData) {
+            $.log(3, "Translating Enemies Data ($dataEnemies)...");
+            // $dataEnemies is an array, index 0 is null.
+            for (let i = 1; i < enemiesData.length; i++) {
+                const enemy = enemiesData[i];
+                if (enemy && enemy.name) {
+                    enemy.name = this.translate(enemy.name, { context: `$dataEnemies[${i}].name` });
+                }
+            }
+            $.log(3, "Finished translating Enemies Data.");
+        },
+
+        translateArmorsData: function(armorsData) {
+            $.log(3, "Translating Armors Data ($dataArmors)...");
+            // $dataArmors is an array, index 0 is null.
+            for (let i = 1; i < armorsData.length; i++) {
+                const armor = armorsData[i];
+                if (armor) {
+                    const baseContext = `$dataArmors[${i}]`;
+                    if (armor.name) {
+                        armor.name = this.translate(armor.name, { context: `${baseContext}.name` });
+                    }
+                    if (armor.description) {
+                        armor.description = this.translate(armor.description, { context: `${baseContext}.description` });
+                    }
+                }
+            }
+            $.log(3, "Finished translating Armors Data.");
+        },
+
+        translateWeaponsData: function(weaponsData) {
+            $.log(3, "Translating Weapons Data ($dataWeapons)...");
+            // $dataWeapons is an array, index 0 is null.
+            for (let i = 1; i < weaponsData.length; i++) {
+                const weapon = weaponsData[i];
+                if (weapon) {
+                    const baseContext = `$dataWeapons[${i}]`;
+                    if (weapon.name) {
+                        weapon.name = this.translate(weapon.name, { context: `${baseContext}.name` });
+                    }
+                    if (weapon.description) {
+                        weapon.description = this.translate(weapon.description, { context: `${baseContext}.description` });
+                    }
+                }
+            }
+            $.log(3, "Finished translating Weapons Data.");
+        },
+
+        translateMapInfosData: function(mapInfosData) {
+            $.log(3, "Translating Map Infos Data ($dataMapInfos)...");
+            // $dataMapInfos is an array, can have null elements (especially at index 0).
+            for (let i = 0; i < mapInfosData.length; i++) { // Start from 0 as even index 0 might be used by some plugins, though typically it's null for unused map ID 0.
+                const mapInfo = mapInfosData[i];
+                if (mapInfo && mapInfo.name) {
+                    mapInfo.name = this.translate(mapInfo.name, { context: `$dataMapInfos[${i}].name` });
+                }
+            }
+            $.log(3, "Finished translating Map Infos Data.");
         },
 
         translateMapData: function(mapData, mapFileName) {
