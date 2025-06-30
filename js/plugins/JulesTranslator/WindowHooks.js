@@ -197,16 +197,19 @@ JulesTranslator.WindowHooks = JulesTranslator.WindowHooks || {};
                 const rect = this.itemRectForText(index);
                 this.resetTextColor(); // Ensure default text color
                 this.changePaintOpacity(this.isCommandEnabled(index));
-                // Use drawTextEx to handle potential escape characters in translated text, though choices are usually simple.
-                this.drawTextEx(translatedChoiceText, rect.x, rect.y, rect.width);
-                // Note: drawTextEx in MV takes (text, x, y). Width is handled by the method itself if it wraps.
-                // In MZ, it's (text, x, y, width). So, this call is more MZ-like.
-                // For MV, it might be better to use this.drawText(translatedChoiceText, rect.x, rect.y, rect.width, this.lineHeight(), this.itemTextAlign());
-                // Let's assume drawTextEx is available and handles width appropriately or we are on MZ.
-                // For broader compatibility, a check for drawTextEx vs drawText might be needed.
-                // For now, this.drawTextEx is a common way.
+
+                // Use drawTextEx to handle potential escape characters in translated text.
+                // Window_Base.prototype.drawTextEx changed signature from MV (text, x, y) to MZ (text, x, y, width)
+                if (Utils.RPGMAKER_NAME === 'MZ') {
+                    // MZ's Window_Command (and thus Window_ChoiceList) inherits drawTextEx from Window_Base
+                    this.drawTextEx(translatedChoiceText, rect.x, rect.y, rect.width);
+                } else { // MV
+                    // MV's Window_Command also has drawTextEx, typically calling this.contents.drawText
+                    // The common signature for Window_Command.prototype.drawTextEx in MV is (text, x, y)
+                    this.drawTextEx(translatedChoiceText, rect.x, rect.y);
+                }
             };
-            $.log(3, "WindowHooks: Re-aliased Window_ChoiceList.drawItem with direct translated drawing.");
+            $.log(3, "WindowHooks: Re-aliased Window_ChoiceList.drawItem with direct translated drawing (MZ/MV awareness for drawTextEx).");
 
         },
 
