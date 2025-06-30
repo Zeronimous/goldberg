@@ -239,6 +239,93 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 (function($) {
     'use strict';
 
+    // Regular Expression for RPG Maker Escape Codes
+    // This covers common MV and some MZ codes. May need refinement for exhaustive MZ support.
+    // \\ - literal backslash
+    // V[n], N[n], P[n], C[n], I[n], FS[n], OW[n], OC[n] - with numeric arguments
+    // FN[name] - with string argument (font name)
+    // G, $, ., |, !, >, <, ^, {, } - single character codes
+    // Added specific check for PX[n] and PF[n] for MZ player/follower names.
+    const ESCAPE_CODE_REGEX = /\\([VNP thermiqueow]\[\d+\]|FN\[[^\]]+\]|PX\[\d+\]|PF\[\d+\]|[Gg]|[CcIi]\[\d+\]|[\$\.\|\!><\^\{\}\\])/gi;
+    // Simpler version focusing on common codes if the above is too complex or has issues:
+    // const ESCAPE_CODE_REGEX = /\\([VNP thermique]\\[\\d+\\]|[GIcnpTherm]{\\[\\d+\\]}|[\\$\\.\\|\\!><\\^\\{\\}\\\\])/gi;
+    // Let's refine it:
+    // It should match:
+    // - A literal backslash: \\
+    // - Codes with numeric arguments: \C[n], \I[n], \V[n], \N[n], \P[n], \FS[n], \OW[n], \OC[n]
+    // - Codes with string arguments (like font name): \FN[name]
+    // - Single character codes: \G, \$, \., \|, \!, \>, \<, \^, \{, \}
+    // - MZ specific player/follower: \PX[n], \PF[n]
+    // The key is to correctly group these.
+
+    // Breakdown for clarity:
+    // \\\\                     -> matches literal backslash '\'
+    // (                        -> start of capturing group 1 (the code letter and its params)
+    //   [VNP thermiqueOWCFS]\[\d+\]  -> V,N,P,C,I,O,W,F,S followed by [digits] (e.g., \V[10], \C[1], \FS[20]) - Note: OC, OW, FS are MZ
+    //   |PX\[\d+\]             -> PX followed by [digits] (MZ Player X)
+    //   |PF\[\d+\]             -> PF followed by [digits] (MZ Follower X)
+    //   |FN\[[^\]]+\]          -> FN followed by [any chars not a closing bracket] (e.g., \FN[MyFont]) - MZ
+    //   |[Gg$|$.!><^{}\\]      -> Single character codes: G or g, $, ., |, !, >, <, ^, {, }, or literal \
+    // )                        -> end of capturing group 1
+    // The 'i' flag for case-insensitivity on G is good.
+    // The 'g' flag for global match is essential.
+
+    const RPGMAKER_ESCAPE_CODE_REGEX = /\\\\(?:[VNPCOWFS]\w*\[[^\]]*\]|[GIgnpTherm]|[$.!><^{}|%^LN_#*@~])/gi;
+    // Let's try a more structured one from common libraries, usually looks like:
+    // \V[n], \N[n], \P[n], \G, \C[n], \I[n], \$, \., \|, \!, \>, \<, \^, \{, \}
+    // MZ adds: \PX[n], \PF[n], \FS[n], \FN[fontname], \OC[n], \OW[n]
+    // Also, \\ for literal backslash.
+
+    // Final proposed regex:
+    // It captures the entire escape sequence.
+    const JULES_TRANSLATOR_ESCAPE_REGEX = /\\(?:[VNPFS]\w*\[[^\]]+\]|[CGIO]\w*\[\d+\]|[Pp][Gg]?|[!$><.|{}^\\%LN_#*@~])/gi;
+    // This is still a bit broad with \w*. Let's be more specific.
+    // \V[n], \N[n], \P[n] (actor/party member name/variable)
+    // \C[n] (color), \I[n] (icon)
+    // \G (gold window)
+    // \$, \., \|, \!, \>, \<, \^ (message control)
+    // \{, \} (font size change)
+    // \\ (literal backslash)
+    // MZ specific:
+    // \FS[n] (font size)
+    // \FN[name] (font name)
+    // \OW[n] (outline width)
+    // \OC[n] (outline color)
+    // \PX[n] (party member by index, name)
+    // \PF[n] (follower by index, name)
+
+    // Let's try to build it piece by piece for clarity and robustness:
+    const escapeCodes = [
+        "\\\\V\\[\\d+\\]",       // \V[n]
+        "\\\\N\\[\\d+\\]",       // \N[n]
+        "\\\\P\\[\\d+\\]",       // \P[n]
+        "\\\\G",                // \G (gold window should be case insensitive, handled by 'i' flag later)
+        "\\\\C\\[\\d+\\]",       // \C[n]
+        "\\\\I\\[\\d+\\]",       // \I[n]
+        "\\\\\\$",              // \$ (money window)
+        "\\\\\\.",              // \. (wait 1/4s)
+        "\\\\\\|",              // \| (wait 1s)
+        "\\\\\\!",              // \! (wait for input)
+        "\\\\\\>",              // \> (text speed up start)
+        "\\\\\\<",              // \< (text speed up end)
+        "\\\\\\^",              // \^ (no wait after message)
+        "\\\\\\{",              // \{ (increase font size)
+        "\\\\\\}",              // \} (decrease font size)
+        "\\\\\\\\",             // \\ (literal backslash)
+        // MZ Specific Codes
+        "\\\\FS\\[\\d+\\]",      // \FS[n] (Font Size)
+        "\\\\FN\\[[^\\]]+\\]",   // \FN[FontName] (Font Name)
+        "\\\\OW\\[\\d+\\]",      // \OW[n] (Outline Width)
+        "\\\\OC\\[\\d+\\]",      // \OC[n] (Outline Color)
+        "\\\\PX\\[\\d+\\]",      // \PX[n] (Party member n name)
+        "\\\\PF\\[\\d+\\]"       // \PF[n] (Follower n name)
+    ];
+    // %% for literal % is usually handled by TextManager, not as an escape code here.
+
+    const ESCAPE_CODE_REGEX_PATTERN = new RegExp(escapeCodes.join("|"), 'gi');
+    // This regex will be used in _extractEscapeCodes
+    const JULES_TRANSLATOR_PLACEHOLDER_PREFIX = "@@JT_ESC_"; // Keep it somewhat unique
+
     // --- Parameter Parsing ---
     const pluginName = 'JulesTranslator';
     $.Parameters = PluginManager.parameters(pluginName);
@@ -306,6 +393,7 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                 this.cache = null; // Effectively disables caching
             }
             this.loadManualTranslations();
+            this._escapeCodePlaceholderIndex = 0; // For generating unique placeholders
 
             // Placeholder for initializing machine translation services
             if ($.machineService === 'google' && $.googleApiKey) {
@@ -342,97 +430,92 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             // Unique prefix to identify strings that have already been processed by this function
             const PROCESSED_MARKER = "@@JT@@";
 
-            // If text already has the marker, it means it was translated (or attempted) by a higher-level hook.
-            // Return it as is, removing the marker for final display (or let drawing functions handle it).
-            // For now, we'll assume the marker is internal and should be stripped if found.
+            // If text already has the marker, it means it was translated (or attempted) by this function before.
+            // Return it as is, removing the marker for final display by the engine.
             if (originalText.startsWith(PROCESSED_MARKER)) {
-                $.log(3, `Skipping translation for already processed text: "${originalText}"`);
+                $.log(3, `Translate: Skipping already processed text: "${originalText}"`);
                 return originalText.substring(PROCESSED_MARKER.length);
             }
 
-            // 1. Check cache
+            // 1. Cache Check (using original trimmed text as key)
+            // The cache will store the *final displayable* (codes restored) translated string,
+            // but internally it's prefixed with PROCESSED_MARKER.
             if (this.cache && this.cache.has(trimmedText)) {
-                const cachedResult = this.cache.get(trimmedText);
-                $.log(3, `Cache hit for: "${trimmedText}" -> "${cachedResult}"`);
-                // Ensure cached results also have the marker if they were actual translations
-                // and not just fallbacks to original. This depends on what's stored in cache.
-                // For now, assume cache stores final displayable string.
-                return cachedResult;
+                const cachedValue = this.cache.get(trimmedText);
+                if (cachedValue.startsWith(PROCESSED_MARKER)) {
+                    $.log(3, `Translate: Cache hit for: "${trimmedText}" -> "${cachedValue.substring(PROCESSED_MARKER.length)}"`);
+                    return cachedValue.substring(PROCESSED_MARKER.length);
+                }
+                // Should not happen if cache is managed correctly, but as a fallback:
+                return cachedValue;
             }
 
-            // 2. Check manual translations
-            if (this.manualTranslations[trimmedText]) {
-                const manualTranslation = this.manualTranslations[trimmedText];
-                $.log(3, `Manual hit for: "${trimmedText}" -> "${manualTranslation}"`);
-                const resultToCache = PROCESSED_MARKER + manualTranslation;
-                if (this.cache) this.cache.set(trimmedText, resultToCache); // Cache with marker
-                return manualTranslation; // Return without marker for display
+            // 2. Extract escape codes
+            const { processedText, escapeMap } = this._extractEscapeCodes(trimmedText);
+
+            // 3. Manual Translation Check (using text with placeholders as key)
+            if (this.manualTranslations[processedText]) {
+                let manualTranslationOfProcessed = this.manualTranslations[processedText];
+                let finalManualTranslation = this._restoreEscapeCodes(manualTranslationOfProcessed, escapeMap);
+                $.log(3, `Translate: Manual hit for (processed) "${processedText}" -> (restored) "${finalManualTranslation}"`);
+                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + finalManualTranslation);
+                return finalManualTranslation;
             }
 
-            // 3. Machine translation (Placeholder - actual call would be async)
-            let wasMachineTranslatedAttempted = false;
-            let immediateReturnValue = trimmedText; // Default to original text if no translation path taken
+            // 4. Machine Translation
+            let immediateReturnValueForDisplay = trimmedText; // Default to original if no MT
+            let textToSendToService = processedText;
 
             if ($.machineService && this.translationServices[$.machineService]) {
                 const service = this.translationServices[$.machineService];
-                wasMachineTranslatedAttempted = true;
-                $.log(3, `Attempting machine translation for: "${trimmedText}" via ${$.machineService}`);
+                $.log(3, `Translate: Attempting machine translation for (processed): "${textToSendToService}" via ${$.machineService}`);
 
-                // Immediately return a placeholder or original text for synchronous game flow
-                immediateReturnValue = `[T] ${trimmedText}`; // Placeholder
+                immediateReturnValueForDisplay = `[T] ${trimmedText}`; // Show original with [T] prefix as placeholder
 
-                // Trigger asynchronous translation
-                service.translate(trimmedText, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
+                // Trigger asynchronous translation of text_with_placeholders
+                service.translate(textToSendToService, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
                     .then(result => {
-                        if (result && result.error === null && result.translatedText !== trimmedText) {
-                            $.log(2, `Machine translation successful for "${trimmedText}" -> "${result.translatedText}"`);
-                            if (this.cache) {
-                                this.cache.set(trimmedText, PROCESSED_MARKER + result.translatedText);
-                            }
-                            // TODO (Advanced): Consider if/how to refresh currently displayed text if possible
-                        } else if (result && result.error) {
-                            $.log(1, `Machine translation error for "${trimmedText}": ${result.error}`);
-                            // Cache the error or original text with marker to prevent retries for a while?
-                            // For now, just logs. Next time it will try again if not manually translated.
-                            if (this.cache) { // Cache the placeholder to avoid re-hitting failing API immediately
-                                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
-                            }
+                        let finalTranslatedText;
+                        if (result && result.error === null && result.translatedText !== textToSendToService) {
+                            finalTranslatedText = this._restoreEscapeCodes(result.translatedText, escapeMap);
+                            $.log(2, `Translate: MT successful for "${trimmedText}" -> "${finalTranslatedText}" (Original processed: "${textToSendToService}", MT processed: "${result.translatedText}")`);
                         } else {
-                             // Service might return original if it can't translate or no change
-                            $.log(3, `Machine translation returned original or no change for "${trimmedText}".`);
-                            if (this.cache) {
-                                this.cache.set(trimmedText, PROCESSED_MARKER + trimmedText);
+                            if (result && result.error) {
+                                $.log(1, `Translate: MT error for "${trimmedText}" (processed: "${textToSendToService}"): ${result.error}`);
+                            } else {
+                                $.log(3, `Translate: MT returned original or no change for (processed) "${textToSendToService}".`);
                             }
+                            finalTranslatedText = trimmedText; // Fallback to original (codes intact)
+                        }
+                        if (this.cache) {
+                            this.cache.set(trimmedText, PROCESSED_MARKER + finalTranslatedText);
                         }
                     })
                     .catch(error => {
-                        $.log(1, `Unhandled error during machine translation call for "${trimmedText}":`, error);
-                        if (this.cache) { // Cache the placeholder to avoid re-hitting failing API immediately
-                            this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
+                        $.log(1, `Translate: Unhandled error in MT call for "${trimmedText}" (processed: "${textToSendToService}"):`, error);
+                        if (this.cache) { // Cache placeholder to prevent rapid retries
+                            this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
                         }
                     });
 
-                // Return the placeholder for now.
-                // The actual translated text will be available from cache on next encounter.
-                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue); // Cache placeholder
-                return immediateReturnValue;
+                // Cache and return the immediate placeholder
+                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
+                return immediateReturnValueForDisplay;
 
             } else if ($.machineService) {
-                $.log(1, `Machine translation service "${$.machineService}" selected but not properly configured or API key missing. Using placeholder for "${trimmedText}".`);
-                immediateReturnValue = `[T] ${trimmedText}`; // Placeholder
-                wasMachineTranslatedAttempted = true; // Count as an attempt
+                $.log(1, `Translate: MT service "${$.machineService}" selected but not configured/API key missing. Using placeholder for "${trimmedText}".`);
+                immediateReturnValueForDisplay = `[T] ${trimmedText}`;
             } else {
-                $.log(3, `No machine translation service selected. Passing through: "${trimmedText}".`);
-                // No MT attempt, just original text. immediateReturnValue is already trimmedText.
+                $.log(3, `Translate: No MT service selected. Passing through: "${trimmedText}".`);
+                // No MT attempted, immediateReturnValueForDisplay is already trimmedText
             }
 
-            // If code reaches here, it means no manual translation was found, AND
-            // either no machine translation service was configured/attempted, or we are returning a placeholder.
-            // Cache the result (which might be original text or a [T] placeholder) with the processed marker.
+            // If code reaches here: no manual translation, and either no MT attempted or only placeholder returned.
+            // Cache the current immediateReturnValueForDisplay (which is original or [T] original)
             if (this.cache) {
-                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValue);
+                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
             }
-            return immediateReturnValue;
+            return immediateReturnValueForDisplay;
         },
 
         loadManualTranslations: function() {
@@ -490,7 +573,45 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             }
         },
 
-        // Placeholder for translateDataObject - to be filled by DataManagerHooks
+        _extractEscapeCodes: function(text) {
+            if (!text || typeof text !== 'string') {
+                return { processedText: text, escapeMap: [] };
+            }
+
+            const escapeMap = [];
+            let placeholderIndex = 0;
+
+            const processedText = text.replace(ESCAPE_CODE_REGEX_PATTERN, function(match) {
+                const placeholder = `${JULES_TRANSLATOR_PLACEHOLDER_PREFIX}${placeholderIndex++}@@`;
+                escapeMap.push(match);
+                return placeholder;
+            });
+
+            if (escapeMap.length > 0) {
+                $.log(3, `_extractEscapeCodes: Original: "${text}", Processed: "${processedText}", Map:`, JSON.stringify(escapeMap));
+            }
+            return { processedText: processedText, escapeMap: escapeMap };
+        },
+
+        _restoreEscapeCodes: function(textWithPlaceholders, escapeMap) {
+            if (!textWithPlaceholders || typeof textWithPlaceholders !== 'string' || !escapeMap || escapeMap.length === 0) {
+                return textWithPlaceholders;
+            }
+
+            let restoredText = textWithPlaceholders;
+            for (let i = 0; i < escapeMap.length; i++) {
+                const placeholder = `${JULES_TRANSLATOR_PLACEHOLDER_PREFIX}${i}@@`;
+                const placeholderRegExp = new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+                restoredText = restoredText.replace(placeholderRegExp, escapeMap[i]);
+            }
+
+            if (textWithPlaceholders !== restoredText && escapeMap.length > 0) {
+                $.log(3, `_restoreEscapeCodes: From: "${textWithPlaceholders}", To: "${restoredText}"`);
+            }
+            return restoredText;
+        },
+
+        // Actual method to translate data objects
         translateDataObject: function(fileName, dataObject, globalVarName) {
             if (!dataObject) {
                 $.log(1, `translateDataObject: Received null dataObject for ${fileName}. Skipping.`);
