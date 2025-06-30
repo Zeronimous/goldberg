@@ -349,10 +349,15 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             if ($.machineService && this.translationServices[$.machineService]) {
                 $.log(3, `Machine translating: "${trimmedText}" via ${$.machineService}`);
                 // translatedText = await this.translationServices[$.machineService].translate(trimmedText, $.gameOriginalLanguage, $.targetLanguage, contextInfo);
-                // Synchronous placeholder for now:
-                translatedText = `[${$.machineService.toUpperCase()}:${$.targetLanguage}] ${trimmedText}`;
-            } else if ($.machineService) {
-                $.log(1, `Machine translation service "${$.machineService}" selected but not configured or API key missing.`);
+                // For initial testing of hooks, let's make it very clear:
+                translatedText = `[T] ${trimmedText}`;
+                $.log(3, `No configured/successful machine translation for "${trimmedText}", returning placeholder.`);
+            } else if ($.machineService) { // This case means service was selected but not configured/failed
+                translatedText = `[T] ${trimmedText}`; // Still use placeholder
+                $.log(1, `Machine translation service "${$.machineService}" selected but not properly configured or API key missing. Using placeholder for "${trimmedText}".`);
+            } else { // No machine service selected at all
+                 translatedText = `[T] ${trimmedText}`; // Use placeholder
+                 $.log(3, `No machine translation service selected. Using placeholder for "${trimmedText}".`);
             }
 
             if (this.cache) this.cache.set(trimmedText, translatedText);
