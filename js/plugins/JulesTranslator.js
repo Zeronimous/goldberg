@@ -221,6 +221,28 @@
  *                                   // This also clears the cache and reloads manual files.
  *   JulesTranslator reload          // Clears cache and reloads manual translation files.
  *
+ * --- Plugin Commands (MZ style) ---
+ * @command enable
+ * @text Enable Translator
+ * @desc Enables the translation functionality at runtime.
+ *
+ * @command disable
+ * @text Disable Translator
+ * @desc Disables the translation functionality at runtime.
+ *
+ * @command setLang
+ * @text Set Target Language
+ * @desc Changes the target language for translations at runtime. Clears cache and reloads manual files.
+ * @arg lang
+ * @type string
+ * @text Language Code
+ * @desc The language code to switch to (e.g., en, es, ja).
+ * @default en
+ *
+ * @command reload
+ * @text Reload Translations
+ * @desc Clears the translation cache and reloads manual translation files.
+ *
  * --- For RPG Maker MZ ---
  * This plugin aims for MZ compatibility. MZ uses a different plugin command
  * system. If using MZ, ensure you use MZ-style plugin commands if available,
@@ -1219,14 +1241,75 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
         }
     };
 
-    // MZ Plugin Command Registration (Conceptual - would need Utils.RPGMAKER_NAME check)
-    // if (Utils.RPGMAKER_NAME === 'MZ') { // Or a more reliable check for MZ
-    //     PluginManager.registerCommand(pluginName, "enable", args => {
-    //         MyTranslator.isEnabled = true;
-    //         $.log(2, 'JulesTranslator enabled via MZ command.');
-    //     });
-    //     // ... other MZ commands ...
-    // }
+    // --- MZ Plugin Command Registration ---
+    // Check if we are in an MZ environment that supports the new PluginManager command registration
+    if (typeof PluginManager.registerCommand === 'function') {
+        $.log(2, "MZ environment detected. Registering MZ plugin commands.");
+
+        PluginManager.registerCommand(pluginName, "enable", args => {
+            MyTranslator.isEnabled = true;
+            $.log(2, 'JulesTranslator enabled via MZ command.');
+        });
+
+        PluginManager.registerCommand(pluginName, "disable", args => {
+            MyTranslator.isEnabled = false;
+            $.log(2, 'JulesTranslator disabled via MZ command.');
+        });
+
+        PluginManager.registerCommand(pluginName, "setLang", args => {
+            // In MZ, args are parsed from @arg definitions. args.lang should be available.
+            const lang = String(args.lang || $.targetLanguage); // Fallback to current if arg is missing
+            $.targetLanguage = lang;
+            if (MyTranslator.cache) MyTranslator.cache.clear();
+            MyTranslator.loadManualTranslations();
+            $.log(2, `JulesTranslator language set to (MZ): ${$.targetLanguage}`);
+        });
+
+        PluginManager.registerCommand(pluginName, "reload", args => {
+            if (MyTranslator.cache) MyTranslator.cache.clear();
+            MyTranslator.loadManualTranslations();
+            $.log(2, 'JulesTranslator translations reloaded via MZ command.');
+        });
+
+    } else {
+        // --- Fallback to MV Style Plugin Command Handler ---
+        $.log(2, "MV environment detected or registerCommand not found. Using MV plugin command system.");
+        const _Game_Interpreter_pluginCommand = Game_Interpreter.prototype.pluginCommand;
+        Game_Interpreter.prototype.pluginCommand = function(command, args) {
+            _Game_Interpreter_pluginCommand.call(this, command, args);
+            if (command === pluginName) {
+                const subCommand = (args[0] || '').toLowerCase();
+                switch (subCommand) {
+                    case 'enable':
+                        MyTranslator.isEnabled = true;
+                        $.log(2, 'JulesTranslator enabled via MV plugin command.');
+                        break;
+                    case 'disable':
+                        MyTranslator.isEnabled = false;
+                        $.log(2, 'JulesTranslator disabled via MV plugin command.');
+                        break;
+                    case 'setlang':
+                        if (args[1]) {
+                            $.targetLanguage = String(args[1]);
+                            if (MyTranslator.cache) MyTranslator.cache.clear();
+                            MyTranslator.loadManualTranslations(); // Reload appropriate file
+                            $.log(2, `JulesTranslator language set to (MV): ${$.targetLanguage}`);
+                        } else {
+                            $.log(1, 'JulesTranslator setLang command missing language argument (MV).');
+                        }
+                        break;
+                    case 'reload':
+                        if (MyTranslator.cache) MyTranslator.cache.clear();
+                        MyTranslator.loadManualTranslations();
+                        $.log(2, 'JulesTranslator translations reloaded via MV plugin command.');
+                        break;
+                    default:
+                        $.log(1, `JulesTranslator unknown subcommand (MV): ${subCommand}`);
+                        break;
+                }
+            }
+        };
+    }
 
 
 })(JulesTranslator); // Pass in the namespace
