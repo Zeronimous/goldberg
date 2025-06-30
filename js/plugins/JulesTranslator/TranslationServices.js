@@ -164,9 +164,59 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
     // MyTranslator will likely do:
     // if ($.machineService === 'google') MyTranslator.translationServices.google = new GoogleTranslateService($.googleApiKey);
     // etc.
+    // $.TranslationServices.GoogleTranslateService = GoogleTranslateService; // Will define GoogleTranslateService below
+
+    class GoogleTranslateService extends BaseMachineTranslator {
+        constructor(apiKey) {
+            super(apiKey);
+            this.apiUrl = 'https://translation.googleapis.com/language/translate/v2';
+            $.log(2, `GoogleTranslateService instance created. API URL: ${this.apiUrl}`);
+        }
+
+        async translate(text, fromLang, toLang, contextInfo = {}) {
+            if (!this.apiKey) {
+                $.log(1, "Google API Key is missing for GoogleTranslateService.");
+                return { translatedText: text, error: "API key missing" };
+            }
+            if (!text) {
+                return { translatedText: "", error: null };
+            }
+
+            const params = new URLSearchParams({
+                key: this.apiKey,
+                q: text,
+                target: toLang.toLowerCase(), // Google generally prefers lowercase target
+                format: 'text'
+            });
+
+            if (fromLang && fromLang.toLowerCase() !== 'auto') {
+                params.append('source', fromLang.toLowerCase()); // Google generally prefers lowercase source
+            }
+
+            const fullUrl = `${this.apiUrl}?${params.toString()}`;
+            $.log(3, `GoogleTranslate: Translating "${text}" from ${fromLang || 'auto'} to ${toLang}. URL: ${fullUrl}`);
+
+            try {
+                // Using the _fetch method from BaseMachineTranslator
+                const data = await this._fetch(fullUrl); // Default is GET
+
+                if (data && data.data && data.data.translations && data.data.translations.length > 0 &&
+                    data.data.translations[0].translatedText) {
+                    $.log(3, `GoogleTranslate: Successfully translated to "${data.data.translations[0].translatedText}"`);
+                    return { translatedText: data.data.translations[0].translatedText, error: null };
+                } else {
+                    $.log(1, "GoogleTranslate: No translation found in response or malformed response.", data);
+                    return { translatedText: text, error: "Malformed response from Google API." };
+                }
+            } catch (error) { // _fetch already logs, but we can add more context
+                $.log(1, "GoogleTranslate: Error during API call:", error.message);
+                return { translatedText: text, error: `API call failed: ${error.message}` };
+            }
+        }
+    }
 
     // Make classes available on the JulesTranslator.TranslationServices namespace
-    $.TranslationServices.GoogleTranslateService = GoogleTranslateService;
+    $.TranslationServices.GoogleTranslateService = GoogleTranslateService; // Now defined
     $.TranslationServices.DeepLService = DeepLService;
     $.TranslationServices.BaseMachineTranslator = BaseMachineTranslator; // If useful for extensibility
 
