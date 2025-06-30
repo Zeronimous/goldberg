@@ -165,6 +165,32 @@
  * @param Log Level
  * @parent ---- Debug Options ----
  * @desc Level of detail for console logs.
+ *
+ * @param ---- Hotkey Options ----
+ * @default
+ *
+ * @param Toggle Hotkey Key
+ * @parent ---- Hotkey Options ----
+ * @desc The main key to toggle translation on/off (e.g., F10, T, P). Not case sensitive.
+ * For function keys, use F1 to F12. For letters/numbers, just the character.
+ * @type text
+ * @default F10
+ *
+ * @param Toggle Hotkey Modifier
+ * @parent ---- Hotkey Options ----
+ * @desc Optional modifier key (shift, control, alt). Leave empty for no modifier.
+ * (Modifier support not fully implemented in this version, primarily for future use)
+ * @type select
+ * @option None
+ * @value
+ * @option Shift
+ * @value shift
+ * @option Control
+ * @value control
+ * @option Alt
+ * @value alt
+ * @default
+ *
  * @type select
  * @option None
  * @value 0
@@ -378,6 +404,10 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
     $.manualTranslationFolderName = String($.Parameters['Manual Translation Folder'] || 'translations');
     $.gameOriginalLanguage = String($.Parameters['Game Original Language'] || 'ja');
     $.logLevel = parseInt($.Parameters['LogLevel'] || 2, 10);
+
+    $.toggleHotkeyKey = String($.Parameters['Toggle Hotkey Key'] || 'F10').toLowerCase();
+    // $.toggleHotkeyModifier = String($.Parameters['Toggle Hotkey Modifier'] || '').toLowerCase();
+
 
     // Construct full path for manual translations
     // This assumes the plugin file JulesTranslator.js is directly in js/plugins/
@@ -1316,6 +1346,118 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             }
         };
     }
+
+    // --- Hotkey Listener ---
+    // Add a method to MyTranslator to handle the check, so it's part of the namespace
+    MyTranslator.checkToggleHotkey = function() {
+        if (!$.toggleHotkeyKey || $.toggleHotkeyKey === "" || $.toggleHotkeyKey.toLowerCase() === "none") {
+            return;
+        }
+
+        // Modifiers check (basic - only one modifier supported for now without complex parsing)
+        // let modifierActive = true;
+        // if ($.toggleHotkeyModifier) {
+        //     if (!Input.isPressed($.toggleHotkeyModifier)) {
+        //         modifierActive = false;
+        //     }
+        // }
+        // if (!modifierActive) return;
+
+        // Input.isTriggered expects lowercase for letters and specific names for function keys.
+        // $.toggleHotkeyKey is already toLowerCase().
+        if (Input.isTriggered($.toggleHotkeyKey)) {
+            MyTranslator.isEnabled = !MyTranslator.isEnabled;
+            $.log(2, `Translator Toggled via Hotkey (${$.toggleHotkeyKey}): ${MyTranslator.isEnabled ? 'ENABLED' : 'DISABLED'}`);
+
+            // Optional: Visual Feedback (simple text on screen for a short duration)
+            if (typeof SceneManager._scene.createJulesTranslatorStatusWindow === 'function') {
+                SceneManager._scene.createJulesTranslatorStatusWindow();
+            }
+            if (SceneManager._scene._julesTranslatorStatusWindow) {
+                SceneManager._scene._julesTranslatorStatusWindow.showStatus(MyTranslator.isEnabled);
+            }
+        }
+    };
+
+    // Alias SceneManager.update to check for the hotkey
+    const _SceneManager_update = SceneManager.update;
+    SceneManager.update = function() {
+        _SceneManager_update.call(this);
+        // Check only when a map or battle scene is active and not changing, and MyTranslator is loaded
+        if ((SceneManager._scene instanceof Scene_Map || SceneManager._scene instanceof Scene_Battle) &&
+            !SceneManager.isSceneChanging() && MyTranslator && MyTranslator.checkToggleHotkey) {
+            MyTranslator.checkToggleHotkey();
+        }
+    };
+
+    // --- Optional: Simple Status Window for Hotkey Feedback ---
+    function Window_JulesTranslatorStatus() {
+        this.initialize(...arguments);
+    }
+
+    Window_JulesTranslatorStatus.prototype = Object.create(Window_Base.prototype);
+    Window_JulesTranslatorStatus.prototype.constructor = Window_JulesTranslatorStatus;
+
+    Window_JulesTranslatorStatus.prototype.initialize = function() {
+        const rect = this.statusWindowRect();
+        Window_Base.prototype.initialize.call(this, rect);
+        this.opacity = 0; // Start transparent
+        this.contentsOpacity = 0;
+        this._statusText = "";
+        this._showDuration = 0;
+    };
+
+    Window_JulesTranslatorStatus.prototype.statusWindowRect = function() {
+        const ww = 240;
+        const wh = this.fittingHeight(1);
+        const wx = (Graphics.boxWidth - ww) / 2;
+        const wy = 20;
+        return new Rectangle(wx, wy, ww, wh);
+    };
+
+    Window_JulesTranslatorStatus.prototype.update = function() {
+        Window_Base.prototype.update.call(this);
+        if (this._showDuration > 0) {
+            this.contentsOpacity += 15;
+            this._showDuration--;
+        } else {
+            this.contentsOpacity -= 15;
+        }
+        this.opacity = this.contentsOpacity; // Window fades with contents
+    };
+
+    Window_JulesTranslatorStatus.prototype.showStatus = function(isEnabled) {
+        this._statusText = `Translator: ${isEnabled ? 'ON' : 'OFF'}`;
+        this._showDuration = 90; // Show for 1.5 seconds (90 frames)
+        this.refresh();
+    };
+
+    Window_JulesTranslatorStatus.prototype.refresh = function() {
+        this.contents.clear();
+        this.resetFontSettings();
+        this.changeTextColor(ColorManager.normalColor());
+        this.drawText(this._statusText, 0, 0, this.contentsWidth(), 'center');
+    };
+
+    // Add function to Scene_Base to create this window if it doesn't exist
+    Scene_Base.prototype.createJulesTranslatorStatusWindow = function() {
+        if (!this._julesTranslatorStatusWindow) {
+            this._julesTranslatorStatusWindow = new Window_JulesTranslatorStatus();
+            this.addChild(this._julesTranslatorStatusWindow);
+        }
+    };
+    // Ensure it's created on map/battle scenes
+    const _Scene_Map_createAllWindows = Scene_Map.prototype.createAllWindows;
+    Scene_Map.prototype.createAllWindows = function() {
+        _Scene_Map_createAllWindows.call(this);
+        this.createJulesTranslatorStatusWindow();
+    };
+
+    const _Scene_Battle_createAllWindows = Scene_Battle.prototype.createAllWindows;
+    Scene_Battle.prototype.createAllWindows = function() {
+        _Scene_Battle_createAllWindows.call(this);
+        this.createJulesTranslatorStatusWindow();
+    };
 
 
 })(JulesTranslator); // Pass in the namespace
