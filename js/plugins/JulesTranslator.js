@@ -516,7 +516,21 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                     break;
                 // Add cases for other data files (Actors, Skills, etc.) here
                 default:
-                    $.log(3, `translateDataObject: No specific translator for ${globalVarName} (${fileName}) yet.`);
+                    if (fileName && fileName.startsWith('Map') && fileName.endsWith('.json')) {
+                        if ($.translateDataFiles.eventText) { // Check if event text translation is enabled
+                            this.translateMapData(dataObject, fileName);
+                        } else {
+                            $.log(2, `Skipping event text translation for ${fileName} (disabled by parameters).`);
+                        }
+                    } else if (globalVarName === '$dataCommonEvents') {
+                        if ($.translateDataFiles.eventText) {
+                            this.translateCommonEventsData(dataObject);
+                        } else {
+                            $.log(2, `Skipping event text translation for CommonEvents.json (disabled by parameters).`);
+                        }
+                    } else {
+                        $.log(3, `translateDataObject: No specific translator for ${globalVarName} (${fileName}) yet.`);
+                    }
                     break;
             }
         },
@@ -597,10 +611,209 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             $.log(3, "Finished translating Items Data.");
         },
 
+        translateMapData: function(mapData, mapFileName) {
+            if (!mapData || !mapData.events) {
+                $.log(1, `translateMapData: Invalid map data or no events for ${mapFileName}.`);
+                return;
+            }
+            $.log(3, `Translating Map Data for ${mapFileName} (Events)...`);
+            // mapData.events is an array, but index 0 can be null.
+            for (let i = 0; i < mapData.events.length; i++) {
+                const event = mapData.events[i];
+                if (event && event.pages) {
+                    event.pages.forEach((page, pageIndex) => {
+                        if (page && page.list) {
+                            const context = `${mapFileName}.event[${event.id || i}].page[${pageIndex}]`;
+                            this.translateEventList(page.list, { context: context });
+                        }
+                    });
+                }
+            }
+            $.log(3, `Finished translating Map Data for ${mapFileName}.`);
+        },
+
+        translateCommonEventsData: function(commonEventsData) {
+            if (!commonEventsData) {
+                $.log(1, `translateCommonEventsData: Invalid commonEventsData.`);
+                return;
+            }
+            $.log(3, "Translating Common Events Data ($dataCommonEvents)...");
+            // commonEventsData is an array, index 0 is null.
+            for (let i = 1; i < commonEventsData.length; i++) {
+                const commonEvent = commonEventsData[i];
+                if (commonEvent && commonEvent.list) {
+                    const context = `$dataCommonEvents[${i}]`;
+                    this.translateEventList(commonEvent.list, { context: context });
+                }
+            }
+            $.log(3, "Finished translating Common Events Data.");
+        },
+
         // Placeholder for translateEventList - to be filled by DataManagerHooks
         translateEventList: function(list, contextInfo) {
-            $.log(3, `translateEventList called for context ${contextInfo.context}, but not yet implemented.`);
-            // Actual implementation will be in JulesTranslator_DataManagerHooks.js
+            if (!list || !Array.isArray(list)) {
+                $.log(1, `translateEventList: Invalid or empty list provided for context ${contextInfo.context}.`);
+                return;
+            }
+            $.log(3, `translateEventList: Processing ${list.length} commands for context ${contextInfo.context}`);
+
+            for (let i = 0; i < list.length; i++) {
+                const command = list[i];
+                if (!command || typeof command.code === 'undefined') continue;
+
+                const cmdContext = `${contextInfo.context}.command[${i}]`;
+
+                switch (command.code) {
+                    case 101: // Show Text (header)
+                        { // Block scope for j
+                            $.log(3, `translateEventList: Found Show Text (101) at ${cmdContext}. Processing subsequent 401 lines.`);
+                            let j = i + 1;
+                            while (j < list.length && list[j] && list[j].code === 401) {
+                                const textLineCommand = list[j];
+                                if (textLineCommand.parameters && typeof textLineCommand.parameters[0] === 'string') {
+                                    const originalLine = textLineCommand.parameters[0];
+                                    textLineCommand.parameters[0] = this.translate(originalLine, {
+                                        context: `${contextInfo.context}.command[${i}].textLine[${j-(i+1)}]`
+                                    });
+                                    if (originalLine !== textLineCommand.parameters[0]) {
+                                        $.log(3, ` -> Translated line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}"`);
+                                    }
+                                }
+                                j++;
+                            }
+                            i = j - 1; // Advance main loop counter past these processed 401 commands
+                        }
+                        break;
+
+                    // case 401: // Show Text (text line) - Handled by the 101 case iterating forward.
+                    // No separate handling needed here if 101 is always present before 401.
+                    // If a 401 could appear without a 101 (unlikely for valid event data), it would be missed.
+                    // This approach assumes standard event structure.
+                    // break;
+
+                    case 102: // Show Choices
+                        if (command.parameters && Array.isArray(command.parameters[0])) {
+                            $.log(3, `translateEventList: Found Show Choices (102) at ${cmdContext}. Translating choices.`);
+                            command.parameters[0] = command.parameters[0].map((choice, index) => {
+                                const originalChoice = choice;
+                                const translatedChoice = this.translate(originalChoice, {
+                                    context: `${cmdContext}.choice[${index}]`
+                                });
+                                if (originalChoice !== translatedChoice) {
+                                    $.log(3, ` -> Translated choice ${index}: "${originalChoice}" TO "${translatedChoice}"`);
+                                }
+                                return translatedChoice;
+                            });
+                        }
+                        break;
+
+                    case 105: // Show Scrolling Text (header)
+                        { // Block scope for j
+                            $.log(3, `translateEventList: Found Show Scrolling Text (105) at ${cmdContext}. Processing subsequent 405 lines.`);
+                            let j = i + 1;
+                            while (j < list.length && list[j] && list[j].code === 405) {
+                                const textLineCommand = list[j];
+                                if (textLineCommand.parameters && typeof textLineCommand.parameters[0] === 'string') {
+                                    const originalLine = textLineCommand.parameters[0];
+                                    textLineCommand.parameters[0] = this.translate(originalLine, {
+                                        context: `${contextInfo.context}.command[${i}].scrollLine[${j-(i+1)}]`
+                                    });
+                                    if (originalLine !== textLineCommand.parameters[0]) {
+                                        $.log(3, ` -> Translated scroll line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}"`);
+                                    }
+                                }
+                                j++;
+                            }
+                            i = j - 1; // Advance main loop counter past these processed 405 commands
+                        }
+                        break;
+
+                    // case 405: // Show Scrolling Text (text line) - Handled by the 105 case.
+
+                    case 108: // Comment
+                        // Comments are for the developer, but sometimes used for quick notes.
+                        // Translate if a specific parameter enables it (e.g., $.translateComments = true)
+                        // For now, let's log and skip actual translation of comments to avoid clutter.
+                        if (command.parameters && typeof command.parameters[0] === 'string') {
+                            $.log(3, `translateEventList: Found Comment (108) at ${cmdContext}: "${command.parameters[0]}"`);
+                            // Example if translation was desired:
+                            // if ($.translateComments && command.parameters[0]) {
+                            //     command.parameters[0] = this.translate(command.parameters[0], { context: `${cmdContext}.comment` });
+                            // }
+                        }
+                        break;
+
+                    case 129: // Change Actor Name
+                        if (command.parameters && typeof command.parameters[1] === 'string') {
+                            const actorId = command.parameters[0];
+                            const originalName = command.parameters[1];
+                            command.parameters[1] = this.translate(originalName, {
+                                context: `${cmdContext}.actorName`, actorId: actorId
+                            });
+                            if (originalName !== command.parameters[1]) {
+                                $.log(3, ` -> Translated Change Actor Name (129) for Actor ${actorId}: "${originalName}" TO "${command.parameters[1]}"`);
+                            }
+                        }
+                        break;
+
+                    case 132: // Change Actor Nickname (MV specific, Actor Profile in MZ is different)
+                        // MZ uses code 133 for Profile, and Nickname is part of Actor data.
+                        // This case is primarily for MV.
+                        if (Utils.RPGMAKER_NAME === 'MV' && command.parameters && typeof command.parameters[1] === 'string') {
+                            const actorId = command.parameters[0];
+                            const originalNickname = command.parameters[1];
+                            command.parameters[1] = this.translate(originalNickname, {
+                                context: `${cmdContext}.actorNickname`, actorId: actorId
+                            });
+                            if (originalNickname !== command.parameters[1]) {
+                                $.log(3, ` -> Translated Change Nickname (132) for Actor ${actorId}: "${originalNickname}" TO "${command.parameters[1]}"`);
+                            }
+                        } else if (Utils.RPGMAKER_NAME === 'MZ' && command.code === 132) {
+                             $.log(3, `translateEventList: Skipping Change Nickname (132) in MZ as it's handled differently (Actor Profile).`);
+                        }
+                        break;
+
+                    // case 133 (MV): Change Actor Profile - In MV, params[1] and params[2] are lines of profile.
+                    // case 133 (MZ): Change Profile - params[1] is the full profile text.
+                    // This needs careful handling if we also translate Actors.json.
+                    // For now, let's assume this command dynamically sets profile text.
+                    case 133: // Change Profile
+                        if (command.parameters && typeof command.parameters[1] === 'string') {
+                            const actorId = command.parameters[0];
+                            const originalProfileLine1 = command.parameters[1];
+                            command.parameters[1] = this.translate(originalProfileLine1, {
+                                context: `${cmdContext}.profileLine1`, actorId: actorId
+                            });
+                             if (originalProfileLine1 !== command.parameters[1]) {
+                                $.log(3, ` -> Translated Change Profile (133) line 1 for Actor ${actorId}: "${originalProfileLine1}" TO "${command.parameters[1]}"`);
+                            }
+
+                            if (Utils.RPGMAKER_NAME === 'MV' && command.parameters && typeof command.parameters[2] === 'string') {
+                                const originalProfileLine2 = command.parameters[2];
+                                command.parameters[2] = this.translate(originalProfileLine2, {
+                                    context: `${cmdContext}.profileLine2`, actorId: actorId
+                                });
+                                if (originalProfileLine2 !== command.parameters[2]) {
+                                    $.log(3, ` -> Translated Change Profile (133) line 2 for Actor ${actorId}: "${originalProfileLine2}" TO "${command.parameters[2]}"`);
+                                }
+                            }
+                        }
+                        break;
+
+                    // Other text-containing commands that are generally NOT translated:
+                    // 111 (Conditional Branch - Script): parameters[1] is script
+                    // 355 (Script - multiline): parameters[0]
+                    // 655 (Script - single line): parameters[0]
+                    // 356 (Plugin Command - MV): parameters[0] is command, parameters[1] is args string
+                    // 357 (Plugin Command - MZ): parameters[1] is command, parameters[3] is args object
+                    // These are code or specific commands, not usually natural language for translation.
+
+                    default:
+                        // Log unhandled commands if needed for debugging, but can be noisy
+                        // $.log(3, `translateEventList: Skipping command code ${command.code} at ${cmdContext}`);
+                        break;
+                }
+            }
         }
     };
 
