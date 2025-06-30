@@ -23,16 +23,57 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
         }
 
         // Helper for making HTTP requests (conceptual, using Fetch API)
-        async _fetch(url, options = {}) {
+        async _fetch(url, options = {}, maxRetries = 2, attempt = 1) {
+            const retryableStatusCodes = [429, 500, 502, 503, 504]; // Status codes that might warrant a retry
+            const baseRetryDelay = 500; // ms
+
             try {
                 const response = await fetch(url, options);
                 if (!response.ok) {
-                    $.log(1, `API request failed: ${response.status} ${response.statusText}`, await response.text());
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    let errorBody = null;
+                    let errorContentType = response.headers.get("content-type");
+                    try {
+                        if (errorContentType && errorContentType.includes("application/json")) {
+                            errorBody = await response.json();
+                        } else {
+                            errorBody = await response.text();
+                        }
+                    } catch (e) {
+                        errorBody = `Failed to parse error body: ${e.message}`;
+                    }
+                    $.log(1, `API request failed (Attempt ${attempt}/${maxRetries + 1}): ${response.status} ${response.statusText}`, errorBody);
+
+                    const error = new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
+                    error.status = response.status;
+                    error.body = errorBody;
+
+                    if (retryableStatusCodes.includes(response.status) && attempt <= maxRetries) {
+                        const delay = baseRetryDelay * Math.pow(2, attempt - 1); // Exponential backoff
+                        $.log(2, `Retrying API call to ${url} in ${delay}ms... (Attempt ${attempt + 1})`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return this._fetch(url, options, maxRetries, attempt + 1); // Recursive call for retry
+                    }
+                    throw error; // Non-retryable error or max retries exceeded
                 }
-                return await response.json();
-            } catch (error) {
-                $.log(1, `API request error: ${error}`);
+
+                const successContentType = response.headers.get("content-type");
+                if (successContentType && successContentType.includes("application/json")) {
+                    return await response.json();
+                } else {
+                    $.log(1, `API success response was not JSON: ${successContentType}. Returning as text for ${url}`);
+                    return await response.text();
+                }
+            } catch (error) { // Catches network errors or errors thrown by non-ok responses after retries
+                // If it's a custom error with status, it's already logged from the !response.ok block
+                // This catch is more for fetch() itself failing (e.g. network down)
+                if (!error.status && attempt <= maxRetries) { // Likely a network error if no status, and retries left
+                    const delay = baseRetryDelay * Math.pow(2, attempt - 1);
+                    $.log(1, `Network error during API call (Attempt ${attempt}/${maxRetries + 1}) for ${url}: ${error.message}. Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return this._fetch(url, options, maxRetries, attempt + 1);
+                }
+                // Final failure after retries or non-retryable error
+                $.log(1, `API request error in _fetch for ${url} (Final after ${attempt-1} retries):`, error.message, error.status ? `Status: ${error.status}` : '', error.body || '');
                 throw error;
             }
         }
@@ -135,13 +176,20 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
 
                 if (!response.ok) {
                     let errorData = null;
+                    let specificErrorMessage = response.statusText;
                     try {
                         errorData = await response.json(); // DeepL often returns JSON error messages
-                        $.log(1, `DeepL API Error ${response.status}: ${response.statusText}`, errorData);
+                        if (errorData && errorData.message) {
+                            specificErrorMessage = errorData.message;
+                        }
+                        $.log(1, `DeepL API Error ${response.status}: ${specificErrorMessage}`, errorData || '(No JSON body)');
                     } catch (e) {
-                        $.log(1, `DeepL API Error ${response.status}: ${response.statusText}. Response not JSON:`, await response.text());
+                        // If parsing JSON fails, try to get raw text
+                        const rawErrorText = await response.text().catch(() => 'Failed to get error text');
+                        $.log(1, `DeepL API Error ${response.status}: ${response.statusText}. Response not JSON or unreadable:`, rawErrorText);
+                        specificErrorMessage = `${response.statusText} (Raw: ${rawErrorText.substring(0,100)})`;
                     }
-                    return { translatedText: text, error: `DeepL API Error ${response.status}: ${errorData ? errorData.message : response.statusText}` };
+                    return { translatedText: text, error: `DeepL API Error ${response.status}: ${specificErrorMessage}` };
                 }
 
                 const data = await response.json();
@@ -151,11 +199,11 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     return { translatedText: data.translations[0].text, error: null };
                 } else {
                     $.log(1, "DeepL: No translation found in response or malformed response.", data);
-                    return { translatedText: text, error: "Malformed response from DeepL API." };
+                    return { translatedText: text, error: "Malformed response from DeepL API (no translation text)." };
                 }
-            } catch (error) {
+            } catch (error) { // This catch is for network errors or if _fetch itself throws before response.ok check
                 $.log(1, "DeepL: Network or other error during API call:", error);
-                return { translatedText: text, error: `Network error or invalid response: ${error.message}` };
+                return { translatedText: text, error: `Network error or invalid response: ${error.message || error}` };
             }
         }
     }
@@ -206,11 +254,23 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     return { translatedText: data.data.translations[0].translatedText, error: null };
                 } else {
                     $.log(1, "GoogleTranslate: No translation found in response or malformed response.", data);
-                    return { translatedText: text, error: "Malformed response from Google API." };
+                    return { translatedText: text, error: "Malformed response from Google API (no translation text)." };
                 }
-            } catch (error) { // _fetch already logs, but we can add more context
-                $.log(1, "GoogleTranslate: Error during API call:", error.message);
-                return { translatedText: text, error: `API call failed: ${error.message}` };
+            } catch (error) {
+                let specificErrorMessage = error.message || "Unknown API error";
+                if (error.body && typeof error.body === 'object' && error.body.error) {
+                    // Google's V2 error structure: { error: { errors: [...], code: ..., message: ... } }
+                    if (error.body.error.message) {
+                        specificErrorMessage = error.body.error.message;
+                    } else if (error.body.error.errors && error.body.error.errors.length > 0 && error.body.error.errors[0].message) {
+                        specificErrorMessage = error.body.error.errors[0].message;
+                    }
+                } else if (error.body && typeof error.body === 'string') {
+                    // If error body was plain text
+                    specificErrorMessage = error.body.substring(0, 200); // Truncate long plain text errors
+                }
+                $.log(1, `GoogleTranslate: Error during API call (status ${error.status || 'N/A'}):`, specificErrorMessage, error.body || '');
+                return { translatedText: text, error: `Google API call failed: ${specificErrorMessage}` };
             }
         }
     }
