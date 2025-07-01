@@ -19,6 +19,8 @@ JulesTranslator es un plugin para RPG Maker MV y RPG Maker MZ diseñado para pro
 
 ## 3. Instalación
 
+Esta sección asume que tienes acceso al proyecto fuente en el editor de RPG Maker.
+
 1.  **Descargar Archivos**:
     *   Obtén el archivo `JulesTranslator.js`.
     *   Obtén la carpeta completa `JulesTranslator` que contiene los módulos auxiliares (`DataManagerHooks.js`, `Scene_TranslatorOptions.js`, `TranslationServices.js`, `WindowHooks.js`, `Window_TranslatorLanguage.js`) y una subcarpeta `translations` de ejemplo.
@@ -41,9 +43,93 @@ JulesTranslator es un plugin para RPG Maker MV y RPG Maker MZ diseñado para pro
 4.  **Configurar Parámetros**:
     *   Haz clic en el plugin `JulesTranslator` en la lista para abrir sus parámetros y configúralos según tus necesidades (ver sección "4. Configuración de Parámetros del Plugin").
 
+## 3.1 Instalación en Juegos Compilados (Avanzado)
+
+La siguiente información es para usuarios que desean intentar usar este plugin en un juego de RPG Maker **ya compilado**, es decir, cuando no se tiene acceso al editor del proyecto de RPG Maker.
+
+**ADVERTENCIA IMPORTANTE:**
+
+*   Este proceso es **técnico, arriesgado y no está oficialmente soportado** por el plugin para una configuración sencilla. Puede que no funcione o incluso podría **romper el juego compilado**.
+*   **Realiza una copia de seguridad completa** de la carpeta del juego compilado antes de intentar cualquier modificación.
+*   **No tendrás acceso a la interfaz gráfica del Gestor de Plugins** para configurar los parámetros del plugin. Deberás hacerlo manualmente editando archivos, lo cual es propenso a errores.
+*   La compatibilidad con otros plugins en un juego compilado es difícil de predecir.
+
+**Limitaciones Clave:**
+
+1.  **Configuración de Parámetros**: Los parámetros del plugin (claves API, idioma por defecto, etc.) se configuran normalmente a través del Gestor de Plugins. Sin acceso a él, el plugin usará sus valores por defecto internos A MENOS que modifiques manualmente el archivo `js/plugins.js` del juego o, de forma más invasiva, el propio archivo `JulesTranslator.js`.
+2.  **Orden de Carga**: El orden de los plugins es crucial y se define en `js/plugins.js`. Modificar este archivo incorrectamente puede causar problemas graves.
+
+**Pasos (Bajo tu propio riesgo):**
+
+1.  **Localiza la Carpeta del Juego**:
+    *   Encuentra la carpeta principal del juego compilado. Para juegos de Windows, es la que contiene `Game.exe`. A menudo, los archivos del juego están dentro de una subcarpeta `www` (especialmente si fue exportado para PC/Mac o si usa NW.js). Necesitarás acceder a las carpetas `js/plugins/`.
+
+2.  **Copia los Archivos del Plugin**:
+    *   Navega a la carpeta de plugins del juego (ej. `www/js/plugins/` o `js/plugins/`).
+    *   Copia `JulesTranslator.js` en esta carpeta.
+    *   Dentro de esta misma carpeta `js/plugins/`, crea una nueva carpeta llamada `JulesTranslator`.
+    *   Copia todos los archivos auxiliares del plugin (`DataManagerHooks.js`, `Scene_TranslatorOptions.js`, `TranslationServices.js`, `WindowHooks.js`, `Window_TranslatorLanguage.js`) dentro de esta nueva carpeta `js/plugins/JulesTranslator/`.
+    *   Si planeas usar traducciones manuales, crea también la carpeta `translations` dentro de `js/plugins/JulesTranslator/` (ej. `js/plugins/JulesTranslator/translations/`) y coloca tus archivos `.json` allí.
+
+3.  **Editar `js/plugins.js` (Paso Crítico y Complejo)**:
+    *   Localiza y abre el archivo `js/plugins.js` (usualmente en `www/js/plugins.js`). Este archivo define qué plugins carga el juego, su estado y sus parámetros.
+    *   El archivo contiene un array de objetos JSON. Cada objeto representa un plugin. Ejemplo:
+        ```javascript
+        // Formato de una entrada en plugins.js
+        // {"name":"NombrePlugin","status":true,"description":"...","parameters":{"param1":"valor1"}}
+        ```
+    *   Necesitas añadir una nueva entrada para `JulesTranslator`. **La parte más difícil es replicar correctamente el objeto `parameters`**. Debes listar todos los parámetros definidos en la cabecera de `JulesTranslator.js` (las líneas que empiezan con `@param`) y asignarles un valor.
+        *   **Ejemplo de entrada para `JulesTranslator` (¡DEBES AJUSTAR LOS VALORES!):**
+            ```json
+            {
+                "name": "JulesTranslator",
+                "status": true, // true para activar el plugin
+                "description": "Provides automatic and manual translation capabilities for RPG Maker MV/MZ games.", // Puedes copiar del @plugindesc
+                "parameters": {
+                    "Target Language": "en", // TU IDIOMA DESTINO DESEADO
+                    "Machine Translation Service": "google", // "google", "deepl", o "" para ninguno
+                    "Google API Key": "TU_GOOGLE_API_KEY", // TU CLAVE API SI USAS GOOGLE
+                    "DeepL API Key": "TU_DEEPL_API_KEY",   // TU CLAVE API SI USAS DEEPL
+                    "Enable Text Hooking": "true",
+                    "Enable Data File Translation": "true",
+                    "Translate Actors.json": "true",
+                    "Translate Classes.json": "true",
+                    "Translate Skills.json": "true",
+                    "Translate Items.json": "true",
+                    "Translate Weapons.json": "true",
+                    "Translate Armors.json": "true",
+                    "Translate Enemies.json": "true",
+                    "Translate States.json": "true",
+                    "Translate System.json": "true",
+                    "Translate MapInfos.json": "true",
+                    "Translate Event Text": "true",
+                    "Translate Troops.json": "true",
+                    "Enable Translation Cache": "true",
+                    "Manual Translation Folder": "translations",
+                    "Game Original Language": "ja", // IDIOMA ORIGINAL DEL JUEGO
+                    "Log Level": "2", // 0=None, 1=Error, 2=Info, 3=Debug
+                    "Max Retries On Error": "2",
+                    "Initial Retry Delay Ms": "500",
+                    "Toggle Hotkey Key": "F10",
+                    "Toggle Hotkey Modifier": "",
+                    "Available Target Languages": "en,es,fr,de,ja,ko,zh-CN,zh-TW,pt,it,ru", // IDIOMAS PARA EL MENÚ
+                    "Translator Options Help Text": "Select target language for translation."
+                }
+            }
+            ```
+        *   Añade este objeto JSON al array en `plugins.js`. **Asegúrate de que la sintaxis del JSON sea válida** (ej. añade una coma antes si no es el último elemento del array y no hay una ya).
+        *   **Orden de Carga**: El lugar donde insertes esta entrada en el array determina el orden de carga. Ponerlo al final es lo más simple, pero puede causar problemas si el plugin necesita cargarse antes que otros o si interactúa con plugins que modifican las mismas funciones. No hay una respuesta fácil para esto sin conocer la lista de plugins existente.
+
+4.  **Alternativa para Parámetros (Modificar `JulesTranslator.js` directamente - No recomendado para todos los parámetros)**:
+    *   Si la edición de `plugins.js` para los parámetros es demasiado compleja, *algunos* parámetros (especialmente los que son strings simples como claves API o idioma por defecto) podrían ser "hardcodeados" modificando directamente el archivo `JulesTranslator.js` donde se leen.
+    *   Busca líneas como `$.targetLanguage = String($.Parameters['Target Language'] || 'en');` y podrías cambiar `'en'` a tu valor deseado o asignar directamente `$.targetLanguage = 'es';`.
+    *   **Esto es más invasivo para el código del plugin y menos flexible.** Es preferible configurar todo vía `plugins.js` si es posible. Los parámetros booleanos o numéricos leídos desde `plugins.js` son strings y el plugin los convierte (`"true" === 'true'`, `parseInt(...)`). Si los hardcodeas, usa el tipo de dato correcto (ej. `$.enableCache = true;`, `$.logLevel = 2;`).
+
+Este método es significativamente más complejo que usar el Plugin Manager y solo se recomienda para usuarios con experiencia técnica. El plugin funcionará de manera óptima cuando se configura a través del editor de RPG Maker.
+
 ## 4. Configuración de Parámetros del Plugin
 
-Configura estos parámetros en el Gestor de Plugins de RPG Maker.
+Configura estos parámetros en el Gestor de Plugins de RPG Maker (si tienes acceso al proyecto fuente). Si estás modificando un juego compilado, consulta la sección "3.1 Instalación en Juegos Compilados".
 
 *   **`Target Language`**:
     *   El código del idioma al que quieres traducir el juego (ej. `en` para inglés, `es` para español, `ja` para japonés).
