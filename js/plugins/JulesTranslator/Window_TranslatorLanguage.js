@@ -81,10 +81,20 @@ var JulesTranslator = JulesTranslator || {}; // Ensure namespace exists
         if (symbol && symbol !== 'cancel') {
             const newLang = symbol; // Symbol is the lang code
             if ($.targetLanguage !== newLang) {
-                $.targetLanguage = newLang;
-                if (MyTranslator.cache) MyTranslator.cache.clear();
-                MyTranslator.loadManualTranslations();
+                $.targetLanguage = newLang; // Actualizar el idioma objetivo global
+
+                // Limpiar caché de traducciones (MyTranslator.dispatchLanguageChange también lo hace)
+                // if (MyTranslator.cache) MyTranslator.cache.clear(); // Hecho por dispatch
+
+                // Recargar traducciones manuales para el nuevo idioma
+                MyTranslator.loadManualTranslations(); // Esto es asíncrono
+
                 $.log(2, `Translator language changed to: ${newLang} via UI.`);
+
+                // Notificar al sistema que el idioma ha cambiado para que la UI se actualice
+                if (MyTranslator.dispatchLanguageChange) {
+                    MyTranslator.dispatchLanguageChange();
+                }
                 // Potentially save this to config if a config manager is used
             }
         }

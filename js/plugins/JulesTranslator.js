@@ -322,6 +322,24 @@
  * For parameter types like 'file' or 'struct', this header uses basic
  * text/select types for broader compatibility; adjust as needed for MZ editor.
  *
+ * --- Important Notes on Asynchronous Translation ---
+ * - Machine Translation is Asynchronous: When using machine translation
+ *   services (Google, DeepL), the game will request translations from an
+ *   external server. This process is asynchronous.
+ * - Initial Display: Texts subject to machine translation might briefly
+ *   display in their original language. Once the translation is received
+ *   from the server, the text element in the game will update.
+ * - Language Switching: Changing the language via the in-game options menu
+ *   will attempt to refresh most on-screen text elements. However, for a
+ *   complete refresh of all UI elements, especially those managed by complex
+ *   scenes or other plugins, a scene change (e.g., re-entering a menu or
+ *   map) might occasionally be necessary.
+ * - Data Translation: Game data (items, skills, actors, etc.) is also
+ *   translated. If machine translation is used for these, the original
+ *   text might be used initially if the translation is not yet available
+ *   when the data is first accessed. The data will be updated in the
+ *   background once translated.
+ *
  * ===========================================================================
  */
 
@@ -340,7 +358,7 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
     // FN[name] - with string argument (font name)
     // G, $, ., |, !, >, <, ^, {, } - single character codes
     // Added specific check for PX[n] and PF[n] for MZ player/follower names.
-    const ESCAPE_CODE_REGEX = /\\([VNP thermiqueow]\[\d+\]|FN\[[^\]]+\]|PX\[\d+\]|PF\[\d+\]|[Gg]|[CcIi]\[\d+\]|[\$\.\|\!><\^\{\}\\])/gi;
+    // const ESCAPE_CODE_REGEX = /\\([VNP thermiqueow]\[\d+\]|FN\[[^\]]+\]|PX\[\d+\]|PF\[\d+\]|[Gg]|[CcIi]\[\d+\]|[\$\.\|\!><\^\{\}\\])/gi;
     // Simpler version focusing on common codes if the above is too complex or has issues:
     // const ESCAPE_CODE_REGEX = /\\([VNP thermique]\\[\\d+\\]|[GIcnpTherm]{\\[\\d+\\]}|[\\$\\.\\|\\!><\\^\\{\\}\\\\])/gi;
     // Let's refine it:
@@ -364,61 +382,50 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
     // The 'i' flag for case-insensitivity on G is good.
     // The 'g' flag for global match is essential.
 
-    const RPGMAKER_ESCAPE_CODE_REGEX = /\\\\(?:[VNPCOWFS]\w*\[[^\]]*\]|[GIgnpTherm]|[$.!><^{}|%^LN_#*@~])/gi;
+    // const RPGMAKER_ESCAPE_CODE_REGEX = /\\\\(?:[VNPCOWFS]\w*\[[^\]]*\]|[GIgnpTherm]|[$.!><^{}|%^LN_#*@~])/gi;
     // Let's try a more structured one from common libraries, usually looks like:
     // \V[n], \N[n], \P[n], \G, \C[n], \I[n], \$, \., \|, \!, \>, \<, \^, \{, \}
     // MZ adds: \PX[n], \PF[n], \FS[n], \FN[fontname], \OC[n], \OW[n]
     // Also, \\ for literal backslash.
 
-    // Final proposed regex:
-    // It captures the entire escape sequence.
-    const JULES_TRANSLATOR_ESCAPE_REGEX = /\\(?:[VNPFS]\w*\[[^\]]+\]|[CGIO]\w*\[\d+\]|[Pp][Gg]?|[!$><.|{}^\\%LN_#*@~])/gi;
-    // This is still a bit broad with \w*. Let's be more specific.
-    // \V[n], \N[n], \P[n] (actor/party member name/variable)
-    // \C[n] (color), \I[n] (icon)
-    // \G (gold window)
-    // \$, \., \|, \!, \>, \<, \^ (message control)
-    // \{, \} (font size change)
-    // \\ (literal backslash)
-    // MZ specific:
-    // \FS[n] (font size)
-    // \FN[name] (font name)
-    // \OW[n] (outline width)
-    // \OC[n] (outline color)
-    // \PX[n] (party member by index, name)
-    // \PF[n] (follower by index, name)
-
-    // Let's try to build it piece by piece for clarity and robustness:
-    const escapeCodes = [
-        "\\\\V\\[\\d+\\]",       // \V[n]
-        "\\\\N\\[\\d+\\]",       // \N[n]
-        "\\\\P\\[\\d+\\]",       // \P[n]
-        "\\\\G",                // \G (gold window should be case insensitive, handled by 'i' flag later)
-        "\\\\C\\[\\d+\\]",       // \C[n]
-        "\\\\I\\[\\d+\\]",       // \I[n]
-        "\\\\\\$",              // \$ (money window)
-        "\\\\\\.",              // \. (wait 1/4s)
-        "\\\\\\|",              // \| (wait 1s)
-        "\\\\\\!",              // \! (wait for input)
-        "\\\\\\>",              // \> (text speed up start)
-        "\\\\\\<",              // \< (text speed up end)
-        "\\\\\\^",              // \^ (no wait after message)
-        "\\\\\\{",              // \{ (increase font size)
-        "\\\\\\}",              // \} (decrease font size)
-        "\\\\\\\\",             // \\ (literal backslash)
-        // MZ Specific Codes
-        "\\\\FS\\[\\d+\\]",      // \FS[n] (Font Size)
-        "\\\\FN\\[[^\\]]+\\]",   // \FN[FontName] (Font Name)
-        "\\\\OW\\[\\d+\\]",      // \OW[n] (Outline Width)
-        "\\\\OC\\[\\d+\\]",      // \OC[n] (Outline Color)
-        "\\\\PX\\[\\d+\\]",      // \PX[n] (Party member n name)
-        "\\\\PF\\[\\d+\\]"       // \PF[n] (Follower n name)
+    // Se define el array de patrones de códigos de escape.
+    // La mayoría son sensibles a mayúsculas.
+    // \\\\ -> representa un solo \ en el string de la regex, que coincide con un \ en el texto.
+    const escapeCodePatterns = [
+        "\\\\\\\\",             // Literal backslash: \\
+        "\\\\V\\[\\d+\\]",       // Variable: \V[n]
+        "\\\\N\\[\\d+\\]",       // Actor Name: \N[n]
+        "\\\\P\\[\\d+\\]",       // Party Member Name: \P[n]
+        "\\\\[Gg]",             // Gold Window: \G or \g (insensible aquí)
+        "\\\\C\\[\\d+\\]",       // Change Text Color: \C[n]
+        "\\\\I\\[\\d+\\]",       // Draw Icon: \I[n]
+        "\\\\\\$",              // Gold Window (obsoleto, \G es preferido): \$
+        "\\\\\\.",              // Wait 1/4 second: \.
+        "\\\\\\|",              // Wait 1 second: \|
+        "\\\\\\!",              // Wait for Input: \!
+        "\\\\\\>",              // Start Fast Forward: \>
+        "\\\\\\<",              // End Fast Forward: \< (no siempre usado explícitamente)
+        "\\\\\\^",              // Close Message Window without waiting: \^
+        "\\\\\\{",              // Increase Font Size: \{
+        "\\\\\\}",              // Decrease Font Size: \}
+        // MZ Specific Codes (MV puede ignorarlos o algunos plugins podrían usarlos)
+        "\\\\FS\\[\\d+\\]",      // Font Size: \FS[n]
+        "\\\\FN\\[[^\\]]+\\]",   // Font Name: \FN[FontName] (permite cualquier caracter excepto ']')
+        "\\\\OW\\[\\d+\\]",      // Outline Width: \OW[n]
+        "\\\\OC\\[\\d+\\]",      // Outline Color: \OC[n]
+        "\\\\PX\\[\\d+\\]",      // Player Character Name by party index: \PX[n] (MZ)
+        "\\\\PF\\[\\d+\\]"       // Player Follower Name by follower index: \PF[n] (MZ)
+        // Códigos de control de texto adicionales que podrían ser relevantes para no traducir:
+        // \AF[n] - Actor Face (MZ)
+        // \PM[n] - Party Member Face (MZ)
+        // \TA[n] - Text Alignment (MZ) - No suele tener contenido traducible en sí mismo.
     ];
-    // %% for literal % is usually handled by TextManager, not as an escape code here.
 
-    const ESCAPE_CODE_REGEX_PATTERN = new RegExp(escapeCodes.join("|"), 'gi');
-    // This regex will be used in _extractEscapeCodes
+    // Unir los patrones con '|' y crear el RegExp. Usar solo la bandera 'g' (global).
+    // La insensibilidad para \G ya está manejada con [Gg].
+    const ESCAPE_CODE_REGEX_PATTERN = new RegExp(escapeCodePatterns.join("|"), 'g');
     const JULES_TRANSLATOR_PLACEHOLDER_PREFIX = "@@JT_ESC_"; // Keep it somewhat unique
+
 
     // --- Parameter Parsing ---
     const pluginName = 'JulesTranslator';
@@ -488,20 +495,32 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
     // This will be accessible by other modules if they are also wrapped in the same IIFE
     // or if explicitly exposed (e.g., window.MyTranslator = MyTranslator)
     const MyTranslator = {
-        cache: new Map(),
+        cache: new Map(), // Cache for final translated strings or pending placeholders
         manualTranslations: {},
         translationServices: {}, // Will hold instances of translation service connectors
         isEnabled: true,
         currentFileContext: null, // For DataManager hooks
 
+        // For async UI updates
+        pendingTranslations: new Map(), // Map<string (translationId), { originalText: string, processedText: string, escapeMap: any[], servicePromise: Promise, contexts: Set<object> }>
+        translationRequestIdCounter: 0, // Counter to generate unique IDs for translation requests
+        activeTextElements: new Map(), // Map<translationId, Set<TextElementUpdater>>
+                                       // TextElementUpdater: { updateFunction: (newText) => void, context: any, originalPlaceholder: string }
+
+
         initialize: function() {
+            this.pendingTranslations = new Map();
+            this.translationRequestIdCounter = 0;
+            this.activeTextElements = new Map();
+
             if (!$.enableCache) {
                 this.cache = null; // Effectively disables caching
             }
+            // loadManualTranslations is now async, its result is handled internally by the method.
             this.loadManualTranslations();
             this._escapeCodePlaceholderIndex = 0; // For generating unique placeholders
 
-            // Placeholder for initializing machine translation services
+            // Initializing machine translation services
             if ($.machineService === 'google' && $.googleApiKey) {
                 // Ensure GoogleTranslateService is defined (would be in TranslationServices.js)
                 if ($.TranslationServices && $.TranslationServices.GoogleTranslateService) {
@@ -524,110 +543,178 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             $.log(3, 'Manual translation path:', $.manualTranslationPath);
         },
 
+        _generateTranslationId: function() {
+            return `jt_${this.translationRequestIdCounter++}`;
+        },
+
+        /**
+         * Traduce un texto dado.
+         * @param {string} originalText El texto original a traducir.
+         * @param {object} contextInfo Información contextual opcional.
+         * @returns {TranslationResult} Un objeto que contiene el estado y el valor de la traducción.
+         * TranslationResult: {
+         *   status: 'final' | 'pending' | 'manual' | 'original_fallback', // Estado de la traducción
+         *   textToDisplay: string,     // Texto para mostrar inmediatamente (original o manual)
+         *   translationId: string | null, // ID único si status es 'pending', para registrar callbacks
+         *   finalText: string | null,    // Texto final traducido si ya está disponible (no pendiente)
+         *   originalText: string       // El texto original (trimmed) que se intentó traducir
+         * }
+         */
         translate: function(originalText, contextInfo = {}) {
             if (!this.isEnabled || !originalText || typeof originalText !== 'string') {
-                return originalText;
+                return { status: 'original_fallback', textToDisplay: originalText, translationId: null, finalText: originalText, originalText: originalText || "" };
             }
-            const trimmedText = originalText.trim();
-            if (trimmedText === '') {
-                return originalText;
-            }
-
-            // Unique prefix to identify strings that have already been processed by this function
-            const PROCESSED_MARKER = "@@JT@@";
-
-            // If text already has the marker, it means it was translated (or attempted) by this function before.
-            // Return it as is, removing the marker for final display by the engine.
-            if (originalText.startsWith(PROCESSED_MARKER)) {
-                $.log(3, `Translate: Skipping already processed text: "${originalText}"`);
-                return originalText.substring(PROCESSED_MARKER.length);
+            const trimmedOriginalText = originalText.trim();
+            if (trimmedOriginalText === '') {
+                return { status: 'original_fallback', textToDisplay: originalText, translationId: null, finalText: originalText, originalText: trimmedOriginalText };
             }
 
-            // 1. Cache Check (using original trimmed text as key)
-            // The cache will store the *final displayable* (codes restored) translated string,
-            // but internally it's prefixed with PROCESSED_MARKER.
-            if (this.cache && this.cache.has(trimmedText)) {
-                const cachedValue = this.cache.get(trimmedText);
+            const PROCESSED_MARKER = "@@JT_FINAL@@"; // Marcador para resultados finales en caché (distinto de pending)
+            const PENDING_MARKER_PREFIX = "@@JT_PENDING_ID_"; // Marcador para placeholders pendientes en caché
+
+            // 1. Cache Check
+            if (this.cache && this.cache.has(trimmedOriginalText)) {
+                const cachedValue = this.cache.get(trimmedOriginalText);
+                $.log(3, `Translate: Cache hit for: "${trimmedOriginalText}" -> "${cachedValue}"`);
+
                 if (cachedValue.startsWith(PROCESSED_MARKER)) {
-                    $.log(3, `Translate: Cache hit for: "${trimmedText}" -> "${cachedValue.substring(PROCESSED_MARKER.length)}"`);
-                    return cachedValue.substring(PROCESSED_MARKER.length);
+                    const finalText = cachedValue.substring(PROCESSED_MARKER.length);
+                    return { status: 'final', textToDisplay: finalText, translationId: null, finalText: finalText, originalText: trimmedOriginalText };
+                } else if (cachedValue.startsWith(PENDING_MARKER_PREFIX)) {
+                    // Es un placeholder pendiente. La UI debe mostrar el original y registrarse.
+                    const translationId = cachedValue.split("@@")[0].substring(PENDING_MARKER_PREFIX.length);
+                    return { status: 'pending', textToDisplay: trimmedOriginalText, translationId: translationId, finalText: null, originalText: trimmedOriginalText };
+                } else {
+                    // Caché inválido o formato antiguo, tratar como miss.
+                    $.log(1, `Translate: Invalid cache value for "${trimmedOriginalText}": ${cachedValue}`);
                 }
-                // Should not happen if cache is managed correctly, but as a fallback:
-                return cachedValue;
             }
 
             // 2. Extract escape codes
-            const { processedText, escapeMap } = this._extractEscapeCodes(trimmedText);
+            const { processedText, escapeMap } = this._extractEscapeCodes(trimmedOriginalText);
 
-            // 3. Manual Translation Check (using text with placeholders as key)
+            // 3. Manual Translation Check
             if (this.manualTranslations[processedText]) {
                 let manualTranslationOfProcessed = this.manualTranslations[processedText];
-                let finalManualTranslation = this._restoreEscapeCodes(manualTranslationOfProcessed, escapeMap);
-                $.log(3, `Translate: Manual hit for (processed) "${processedText}" -> (restored) "${finalManualTranslation}"`);
-                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + finalManualTranslation);
-                return finalManualTranslation;
+                let finalManualText = this._restoreEscapeCodes(manualTranslationOfProcessed, escapeMap);
+                $.log(3, `Translate: Manual hit for (processed) "${processedText}" -> (restored) "${finalManualText}"`);
+                if (this.cache) this.cache.set(trimmedOriginalText, PROCESSED_MARKER + finalManualText);
+                return { status: 'manual', textToDisplay: finalManualText, translationId: null, finalText: finalManualText, originalText: trimmedOriginalText };
             }
 
             // 4. Machine Translation
-            let immediateReturnValueForDisplay = trimmedText; // Default to original if no MT
-            let textToSendToService = processedText;
-
             if ($.machineService && this.translationServices[$.machineService]) {
                 const service = this.translationServices[$.machineService];
 
                 if (service.isDisabledForSession) {
-                    $.log(2, `Translate: Machine translation service "${$.machineService}" is disabled for this session. Skipping API call for "${trimmedText}".`);
-                    // Fall through to default behavior (likely return original or [T] placeholder if that was set)
-                    // Ensure wasMachineTranslatedAttempted is false or handled correctly below
-                } else {
-                    $.log(3, `Translate: Attempting machine translation for (processed): "${textToSendToService}" via ${$.machineService}`);
-                    immediateReturnValueForDisplay = `[T] ${trimmedText}`; // Show original with [T] prefix as placeholder
+                    $.log(2, `Translate: MT service "${$.machineService}" is disabled. Using original for "${trimmedOriginalText}".`);
+                    if (this.cache) this.cache.set(trimmedOriginalText, PROCESSED_MARKER + trimmedOriginalText);
+                    return { status: 'original_fallback', textToDisplay: trimmedOriginalText, translationId: null, finalText: trimmedOriginalText, originalText: trimmedOriginalText };
+                }
 
-                // Trigger asynchronous translation of text_with_placeholders
-                service.translate(textToSendToService, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
+                const translationId = this._generateTranslationId();
+                const placeholderForCache = `${PENDING_MARKER_PREFIX}${translationId}@@`;
+
+                if (this.cache) this.cache.set(trimmedOriginalText, placeholderForCache);
+                $.log(3, `Translate: Attempting MT for "${processedText}" (Original: "${trimmedOriginalText}"). ID: ${translationId}. Returning 'pending' status.`);
+
+                service.translate(processedText, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
                     .then(result => {
-                        let finalTranslatedText;
-                        if (result && result.error === null && result.translatedText !== textToSendToService) {
-                            finalTranslatedText = this._restoreEscapeCodes(result.translatedText, escapeMap);
-                            $.log(2, `Translate: MT successful for "${trimmedText}" -> "${finalTranslatedText}" (Original processed: "${textToSendToService}", MT processed: "${result.translatedText}")`);
+                        let mtFinalText;
+                        if (result && result.error === null && result.translatedText !== processedText) {
+                            mtFinalText = this._restoreEscapeCodes(result.translatedText, escapeMap);
+                            $.log(2, `Translate: MT successful for ID ${translationId}: "${trimmedOriginalText}" -> "${mtFinalText}"`);
                         } else {
-                            if (result && result.error) {
-                                $.log(1, `Translate: MT error for "${trimmedText}" (processed: "${textToSendToService}"): ${result.error}`);
-                            } else {
-                                $.log(3, `Translate: MT returned original or no change for (processed) "${textToSendToService}".`);
-                            }
-                            finalTranslatedText = trimmedText; // Fallback to original (codes intact)
+                            if (result && result.error) $.log(1, `Translate: MT error for ID ${translationId} ("${trimmedOriginalText}"): ${result.error}`);
+                            else $.log(3, `Translate: MT no change for ID ${translationId} ("${trimmedOriginalText}").`);
+                            mtFinalText = trimmedOriginalText; // Fallback
                         }
+
                         if (this.cache) {
-                            this.cache.set(trimmedText, PROCESSED_MARKER + finalTranslatedText);
+                            // Solo actualizar caché si el valor sigue siendo el placeholder de esta traducción
+                            if (this.cache.get(trimmedOriginalText) === placeholderForCache) {
+                                this.cache.set(trimmedOriginalText, PROCESSED_MARKER + mtFinalText);
+                            } else {
+                                $.log(2, `Translate: Cache for "${trimmedOriginalText}" changed during MT. Not updating with MT result for ID ${translationId}.`);
+                            }
                         }
+                        MyTranslator.notifyTranslationComplete(translationId, mtFinalText, trimmedOriginalText);
                     })
                     .catch(error => {
-                        $.log(1, `Translate: Unhandled error in MT call for "${trimmedText}" (processed: "${textToSendToService}"):`, error);
-                        if (this.cache) { // Cache placeholder to prevent rapid retries
-                            this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
+                        $.log(1, `Translate: Unhandled MT promise error for ID ${translationId} ("${trimmedOriginalText}"):`, error);
+                        if (this.cache && this.cache.get(trimmedOriginalText) === placeholderForCache) {
+                            this.cache.set(trimmedOriginalText, PROCESSED_MARKER + trimmedOriginalText); // Fallback
                         }
+                        MyTranslator.notifyTranslationComplete(translationId, trimmedOriginalText, trimmedOriginalText); // Notificar con fallback
                     });
 
-                // Cache and return the immediate placeholder
-                if (this.cache) this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
-                return immediateReturnValueForDisplay;
-
-            } else if ($.machineService) {
-                $.log(1, `Translate: MT service "${$.machineService}" selected but not configured/API key missing. Using placeholder for "${trimmedText}".`);
-                immediateReturnValueForDisplay = `[T] ${trimmedText}`;
-            } else {
-                $.log(3, `Translate: No MT service selected. Passing through: "${trimmedText}".`);
-                // No MT attempted, immediateReturnValueForDisplay is already trimmedText
+                return { status: 'pending', textToDisplay: trimmedOriginalText, translationId: translationId, finalText: null, originalText: trimmedOriginalText };
             }
 
-            // If code reaches here: no manual translation, and either no MT attempted or only placeholder returned.
-            // Cache the current immediateReturnValueForDisplay (which is original or [T] original)
-            if (this.cache) {
-                this.cache.set(trimmedText, PROCESSED_MARKER + immediateReturnValueForDisplay);
-            }
-            return immediateReturnValueForDisplay;
+            // No MT service or not configured
+            $.log(3, `Translate: No MT service for "${trimmedOriginalText}". Using original.`);
+            if (this.cache) this.cache.set(trimmedOriginalText, PROCESSED_MARKER + trimmedOriginalText);
+            return { status: 'original_fallback', textToDisplay: trimmedOriginalText, translationId: null, finalText: trimmedOriginalText, originalText: trimmedOriginalText };
         },
+
+        registerTextElement: function(translationId, originalTextForDisplay, updateFunction, elementContext) {
+            // translationId viene del placeholder @@JT_PENDING_ID
+            // originalTextForDisplay es el texto que la UI debe mostrar mientras espera.
+            if (!this.activeTextElements.has(translationId)) {
+                this.activeTextElements.set(translationId, new Set());
+            }
+            this.activeTextElements.get(translationId).add({ updateFunction, context: elementContext, originalText: originalTextForDisplay });
+            $.log(3, `Registered UI element for translation ID ${translationId}. Original display: "${originalTextForDisplay}"`);
+        },
+
+        unregisterTextElement: function(translationId, elementContext) {
+            // TODO: Implementar si es necesario para limpiar elementos que ya no existen.
+            // Podría ser complejo rastrear el `elementContext` exacto.
+            // Por ahora, la limpieza se hace en notifyTranslationComplete después de actualizar.
+             if (this.activeTextElements.has(translationId)) {
+                const updaters = this.activeTextElements.get(translationId);
+                let updaterToRemove = null;
+                for (const updater of updaters) {
+                    // Se necesitaría una forma más robusta de identificar el updater correcto si hay múltiples para el mismo ID y contexto.
+                    // Por ahora, si el contexto es el mismo, asumimos que es el que queremos eliminar.
+                    // Esto es simplista y puede no ser suficiente.
+                    if (updater.context === elementContext) {
+                        updaterToRemove = updater;
+                        break;
+                    }
+                }
+                if (updaterToRemove) {
+                    updaters.delete(updaterToRemove);
+                    $.log(3, `Unregistered UI element for translation ID ${translationId}`);
+                    if (updaters.size === 0) {
+                        this.activeTextElements.delete(translationId);
+                    }
+                }
+            }
+        },
+
+        notifyTranslationComplete: function(translationId, translatedText, originalTrimmedText) {
+            $.log(2, `Translation complete for ID ${translationId}. Notifying ${this.activeTextElements.has(translationId) ? this.activeTextElements.get(translationId).size : 0} elements.`);
+            if (this.activeTextElements.has(translationId)) {
+                this.activeTextElements.get(translationId).forEach(updater => {
+                    try {
+                        // Aquí, `translatedText` ya tiene los códigos de escape restaurados si vinieron de MT.
+                        // La función de actualización es responsable de mostrarlo.
+                        updater.updateFunction(translatedText);
+                    } catch (e) {
+                        $.log(1, `Error updating text element for ID ${translationId}:`, e, updater.context);
+                        // Fallback: intentar actualizar con el texto original si la actualización con el traducido falla.
+                        try {
+                            updater.updateFunction(updater.originalText); // originalText aquí es el que se pasó a registerTextElement
+                        } catch (e2) {
+                            $.log(1, `Error updating text element with fallback original text for ID ${translationId}:`, e2, updater.context);
+                        }
+                    }
+                });
+                this.activeTextElements.delete(translationId); // Limpiar después de notificar a todos los suscriptores para este ID.
+            }
+        },
+
 
         loadManualTranslations: function() {
             this.manualTranslations = {}; // Clear existing
@@ -641,47 +728,32 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             // This is a simplified placeholder for now.
             // A more robust solution would use DataManager or an XHR request.
 
-            if (typeof require === 'function' && typeof process === 'object') { // Check if in NW.js environment
-                const fs = require('fs');
-                const path = require('path');
-                try {
-                    // Adjust path to be relative to project root if needed
-                    // const projectRoot = path.dirname(process.mainModule.filename);
-                    // const absoluteFilePath = path.join(projectRoot, filePath);
-                    // For simplicity, assuming filePath is accessible as is or via plugin manager's path resolution
-
-                    // This path resolution is tricky. Let's assume for now that the `$.manualTranslationPath` is correct.
-                    // In a real scenario, one might need to copy files to a location the game can easily access,
-                    // or use specific RPG Maker functions if available for loading plugin local data.
-
-                    // A common pattern is to use XHR even for local files in MV/MZ
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('GET', filePath, false); // Synchronous for simplicity at init
-                    xhr.overrideMimeType('application/json');
-                    xhr.onload = () => {
-                        if (xhr.status === 200 || (xhr.status === 0 && xhr.responseText)) { // status 0 for local files
-                            try {
-                                this.manualTranslations = JSON.parse(xhr.responseText);
-                                $.log(2, `Successfully loaded and parsed manual translations from ${fileName}. Found ${Object.keys(this.manualTranslations).length} entries.`);
-                            } catch (e) {
-                                $.log(1, `Error parsing manual translation file ${fileName}:`, e);
-                            }
-                        } else {
-                             $.log(1, `Failed to load manual translation file ${fileName}. Status: ${xhr.status}`);
+            // Using fetch API for asynchronous loading
+            fetch(filePath)
+                .then(response => {
+                    if (!response.ok) {
+                        // For local files (file:// protocol), status might be 0 on success or error.
+                        // Need to check response.type as well, or rely on text() to fail for actual errors.
+                        if (response.status === 0 && response.type === 'basic') { // Likely local file success
+                            return response.json();
                         }
-                    };
-                    xhr.onerror = () => {
-                        $.log(1, `Error loading manual translation file ${fileName} (XHR onerror). Path: ${filePath}`);
-                    };
-                    xhr.send();
-
-                } catch (e) {
-                    $.log(1, `Error trying to load manual translations with Node.js fs (or XHR setup failed): ${fileName}`, e);
-                }
-            } else {
-                $.log(2, "Node.js 'fs' module not available (likely web deployment). Manual file loading via XHR would be typical.");
-                // Fallback or alternative XHR loading for web can be placed here.
-            }
+                        throw new Error(`HTTP error ${response.status} while fetching ${fileName}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    this.manualTranslations = data;
+                    $.log(2, `Successfully loaded and parsed manual translations from ${fileName}. Found ${Object.keys(this.manualTranslations).length} entries.`);
+                })
+                .catch(error => {
+                    // Distinguish between file not found (404) and other errors
+                    if (error.message && error.message.includes("404")) {
+                        $.log(2, `Manual translation file ${fileName} not found at ${filePath}. This might be normal if no manual translations are provided for this language pair.`);
+                    } else {
+                        $.log(1, `Error loading or parsing manual translation file ${fileName}:`, error);
+                    }
+                    this.manualTranslations = {}; // Ensure it's empty on error
+                });
         },
 
         _extractEscapeCodes: function(text) {
@@ -748,7 +820,7 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                     break;
                 case '$dataActors':
                     if ($.translateDataFiles.actors) {
-                        this.translateActorsData(dataObject);
+                        this.translateActorsData_v2(dataObject); // Using v2 which is now the main one
                     } else {
                         $.log(2, `Skipping translation for Actors.json (disabled by parameters).`);
                     }
@@ -830,101 +902,198 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             }
         },
 
-        translateSystemData: function(systemData) {
+        translateSystemData: function(systemData) { // systemData es $dataSystem
             $.log(3, "Translating System Data ($dataSystem)...");
 
-            if (systemData.gameTitle) {
-                systemData.gameTitle = this.translate(systemData.gameTitle, { context: '$dataSystem.gameTitle' });
-            }
+            // Propiedades directas
+            this._translateAndRegisterDataProperty_v2(systemData, 'gameTitle', '$dataSystem.gameTitle');
+            this._translateAndRegisterDataProperty_v2(systemData, 'currencyUnit', '$dataSystem.currencyUnit');
 
+            // Arrays de strings (elements, skillTypes, weaponTypes, armorTypes)
+            ['elements', 'skillTypes', 'weaponTypes', 'armorTypes', 'variables', 'switches'].forEach(arrayName => {
+                if (systemData[arrayName] && Array.isArray(systemData[arrayName])) {
+                    for (let i = 0; i < systemData[arrayName].length; i++) {
+                        // Estas son propiedades directas de un array, no objetos.
+                        // El helper _v2 está hecho para obj[prop].
+                        // Necesitamos un helper para array[i] o modificar el actual.
+                        // Por ahora, lo haremos manualmente para estos.
+                        const originalValue = systemData[arrayName][i];
+                        if (typeof originalValue === 'string' && originalValue.trim() !== '') {
+                            const context = `$dataSystem.${arrayName}[${i}]`;
+                            const translationResult = this.translate(originalValue, { context });
+                            systemData[arrayName][i] = translationResult.textToDisplay;
+
+                            if (translationResult.status === 'pending' && translationResult.translationId) {
+                                const transId = translationResult.translationId;
+                                const origText = translationResult.originalText;
+                                this.registerDataUpdate(transId, origText, (newText) => {
+                                    // Asegurarse de que el array y el índice sigan siendo válidos
+                                    if ($dataSystem && $dataSystem[arrayName] && $dataSystem[arrayName][i] === origText) {
+                                        $dataSystem[arrayName][i] = newText;
+                                        $.log(2, `Updated ${context} for ID ${transId} to "${newText}"`);
+                                    } else if ($dataSystem && $dataSystem[arrayName] && $dataSystem[arrayName][i] !== newText) {
+                                        $.log(1, `${context} changed unexpectedly before ID ${transId} update.`);
+                                    }
+                                }, context);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Objeto terms
             if (systemData.terms) {
-                for (const categoryKey in systemData.terms) {
+                for (const categoryKey in systemData.terms) { // basic, commands, params, messages
                     if (Object.prototype.hasOwnProperty.call(systemData.terms, categoryKey)) {
                         const categoryValue = systemData.terms[categoryKey];
                         const termContextBase = `$dataSystem.terms.${categoryKey}`;
 
-                        if (Array.isArray(categoryValue)) {
-                            systemData.terms[categoryKey] = categoryValue.map((term, index) => {
-                                if (typeof term === 'string' && term) { // Ensure term is a non-empty string
-                                    return this.translate(term, { context: `${termContextBase}[${index}]` });
+                        if (Array.isArray(categoryValue)) { // ej. terms.commands es un array
+                            for (let i = 0; i < categoryValue.length; i++) {
+                                const originalTerm = categoryValue[i];
+                                if (typeof originalTerm === 'string' && originalTerm.trim() !== '') {
+                                    const context = `${termContextBase}[${i}]`;
+                                    const translationResult = this.translate(originalTerm, { context });
+                                    systemData.terms[categoryKey][i] = translationResult.textToDisplay;
+
+                                    if (translationResult.status === 'pending' && translationResult.translationId) {
+                                        const transId = translationResult.translationId;
+                                        const origText = translationResult.originalText;
+                                        this.registerDataUpdate(transId, origText, (newText) => {
+                                            if ($dataSystem && $dataSystem.terms && $dataSystem.terms[categoryKey] && $dataSystem.terms[categoryKey][i] === origText) {
+                                                $dataSystem.terms[categoryKey][i] = newText;
+                                                $.log(2, `Updated ${context} for ID ${transId} to "${newText}"`);
+                                            } else if ($dataSystem && $dataSystem.terms && $dataSystem.terms[categoryKey] && $dataSystem.terms[categoryKey][i] !== newText){
+                                                $.log(1, `${context} changed unexpectedly for ID ${transId}.`);
+                                            }
+                                        }, context);
+                                    }
                                 }
-                                return term;
-                            });
-                        } else if (typeof categoryValue === 'object' && categoryValue !== null) {
+                            }
+                        } else if (typeof categoryValue === 'object' && categoryValue !== null) { // ej. terms.messages es un objeto de strings
                             for (const messageKey in categoryValue) {
-                                if (Object.prototype.hasOwnProperty.call(categoryValue, messageKey) &&
-                                    typeof categoryValue[messageKey] === 'string' && categoryValue[messageKey]) { // Ensure non-empty string
-                                    categoryValue[messageKey] = this.translate(categoryValue[messageKey], { context: `${termContextBase}.${messageKey}` });
+                                if (Object.prototype.hasOwnProperty.call(categoryValue, messageKey)) {
+                                     this._translateAndRegisterDataProperty_v2(categoryValue, messageKey, `${termContextBase}.${messageKey}`);
                                 }
                             }
                         }
-                        // Note: Direct string properties under systemData.terms are not standard in MV/MZ default data.
                     }
                 }
             }
+            $.log(3, "Finished translating System Data (v2).");
+        },
 
-            ['weaponTypes', 'armorTypes', 'skillTypes', 'elements'].forEach(arrayName => {
-                if (systemData[arrayName] && Array.isArray(systemData[arrayName])) {
-                    systemData[arrayName] = systemData[arrayName].map((typeName, index) =>
-                        typeName ? this.translate(typeName, { context: `$dataSystem.${arrayName}[${index}]` }) : typeName
+        registerDataUpdate: function(translationId, originalTextForDisplay, updateFunction, dataContext) {
+            if (!this.activeTextElements.has(translationId)) {
+                this.activeTextElements.set(translationId, new Set());
+            }
+            // La updateFunction aquí es específica para actualizar el objeto de datos.
+            this.activeTextElements.get(translationId).add({
+                updateFunction: updateFunction,
+                context: dataContext,
+                originalText: originalTextForDisplay
+            });
+            $.log(3, `Registered data update for ID ${translationId}, Context: ${dataContext}`);
+        },
+
+    // --- Language Change Notification System ---
+    _languageChangeListeners: new Set(),
+
+    subscribeToLanguageChange: function(callback) {
+        this._languageChangeListeners.add(callback);
+    },
+
+    unsubscribeFromLanguageChange: function(callback) {
+        this._languageChangeListeners.delete(callback);
+    },
+
+    dispatchLanguageChange: function() {
+        $.log(2, "Dispatching language change event to listeners.");
+        // Limpiar activeTextElements para el idioma anterior
+        this.activeTextElements.clear();
+        // Limpiar caché también (aunque processOk ya lo hace, es bueno tenerlo aquí por si se llama desde otro lado)
+        if (this.cache) this.cache.clear();
+
+        // Recargar traducciones manuales para el nuevo idioma (ya se hace en processOk, pero por completitud)
+        // this.loadManualTranslations(); // Asegurarse que $.targetLanguage ya está actualizado
+
+        this._languageChangeListeners.forEach(callback => {
+            try {
+                callback();
+            } catch (e) {
+                $.log(1, "Error in language change listener:", e);
+            }
+        });
+        // Forzar un refresco de la escena actual si es posible
+        if (SceneManager._scene) {
+            if (typeof SceneManager._scene.refresh === 'function') {
+                $.log(2, "Attempting to call refresh() on current scene.");
+                SceneManager._scene.refresh();
+            } else if (SceneManager._scene instanceof Scene_Map || SceneManager._scene instanceof Scene_Battle || SceneManager._scene instanceof Scene_MenuBase) {
+                // Para escenas comunes, un goto a sí misma es una forma de forzar recarga completa.
+                // Esto puede ser disruptivo (ej. perder estado de ventana no guardado). Usar con precaución.
+                // Por ahora, no lo haremos automáticamente, dejaremos que las ventanas se suscriban.
+                // $.log(2, `Attempting to reload current scene: ${SceneManager._scene.constructor.name}`);
+                // SceneManager.goto(SceneManager._scene.constructor);
+            }
+        }
+    },
+    // --- End Language Change Notification System ---
+
+        _translateAndRegisterDataProperty: function(dataObject, propertyName, dataContextString, globalDataObject, pathToArray, indexInArray) {
+            const originalValue = dataObject[propertyName];
+            if (typeof originalValue === 'string' && originalValue.trim() !== '') {
+                const translationResult = this.translate(originalValue, { context: dataContextString });
+
+                dataObject[propertyName] = translationResult.textToDisplay; // Mostrar original si está pendiente
+
+                if (translationResult.status === 'pending' && translationResult.translationId) {
+                    const translationId = translationResult.translationId;
+                    const originalText = translationResult.originalText; // El original que se puso en la propiedad
+
+                    MyTranslator.registerDataUpdate(
+                        translationId,
+                        originalText,
+                        (newlyTranslatedText) => {
+                            // Re-acceder al objeto de datos global en caso de que haya sido reemplazado (poco probable para $dataXXX)
+                            // pero más seguro para datos de mapas, etc.
+                            let targetObject = globalDataObject;
+                            if (pathToArray) { // Si es una propiedad dentro de un array (ej. $dataActors[i].name)
+                                if (globalDataObject[pathToArray] && globalDataObject[pathToArray][indexInArray]) {
+                                    targetObject = globalDataObject[pathToArray][indexInArray];
+                                } else {
+                                    $.log(1, `Data object path ${pathToArray}[${indexInArray}] not found for ID ${translationId} update.`);
+                                    return;
+                                }
+                            } else { // Si es una propiedad directa del objeto global (ej. $dataSystem.gameTitle)
+                                targetObject = globalDataObject;
+                            }
+
+                            if (targetObject && targetObject[propertyName] === originalText) {
+                                targetObject[propertyName] = newlyTranslatedText;
+                                $.log(2, `Updated ${dataContextString} for ID ${translationId} to "${newlyTranslatedText}"`);
+                            } else if (targetObject && targetObject[propertyName] !== newlyTranslatedText) {
+                                $.log(1, `${dataContextString} changed unexpectedly before ID ${translationId} update. Current: "${targetObject ? targetObject[propertyName] : 'N/A'}"`);
+                            }
+                        },
+                        dataContextString
                     );
                 }
-            });
-
-            // Attack Motions (some might have names or messages if custom) - typically not text-heavy
-            // Party Members (initial party - names should be from $dataActors)
-            // Title Commands (window positions, etc. - names handled by Window_TitleCommand hook)
-
-            if (systemData.currencyUnit) {
-                systemData.currencyUnit = this.translate(systemData.currencyUnit, { context: '$dataSystem.currencyUnit'});
             }
-
-            if (systemData.variables && Array.isArray(systemData.variables)) {
-                // Index 0 is often unused, but iterate all just in case.
-                systemData.variables = systemData.variables.map((name, index) =>
-                    (typeof name === 'string' && name) ? this.translate(name, { context: `$dataSystem.variables[${index}]`}) : name
-                );
-            }
-
-            if (systemData.switches && Array.isArray(systemData.switches)) {
-                // Index 0 is often unused.
-                systemData.switches = systemData.switches.map((name, index) =>
-                    (typeof name === 'string' && name) ? this.translate(name, { context: `$dataSystem.switches[${index}]`}) : name
-                );
-            }
-            // ... and other fields as necessary
-
-            $.log(3, "Finished translating System Data.");
         },
 
         translateItemsData: function(itemsData) {
             $.log(3, "Translating Items Data ($dataItems)...");
-            // $dataItems is an array, index 0 is null.
             for (let i = 1; i < itemsData.length; i++) {
                 const item = itemsData[i];
                 if (item) {
                     const baseContext = `$dataItems[${i}]`;
-                    if (item.name) {
-                        item.name = this.translate(item.name, { context: `${baseContext}.name` });
-                    }
-                    if (item.description) {
-                        item.description = this.translate(item.description, { context: `${baseContext}.description` });
-                    }
-                    // Messages for common event items (MV specific, often unused in MZ, but good to cover)
-                    if (item.message1) {
-                        item.message1 = this.translate(item.message1, { context: `${baseContext}.message1` });
-                    }
-                    if (item.message2) {
-                        item.message2 = this.translate(item.message2, { context: `${baseContext}.message2` });
-                    }
-                    if (item.message3) { // MZ might not have message3, message4 directly on item
-                        item.message3 = this.translate(item.message3, { context: `${baseContext}.message3` });
-                    }
-                    if (item.message4) {
-                        item.message4 = this.translate(item.message4, { context: `${baseContext}.message4` });
-                    }
-                    // Note field can also contain text, but usually for plugin parameters, not direct display.
-                    // Translating note tags would require specific parsing based on known tags.
+                    this._translateAndRegisterDataProperty(item, 'name', `${baseContext}.name`, $dataItems, null, i);
+                    this._translateAndRegisterDataProperty(item, 'description', `${baseContext}.description`, $dataItems, null, i);
+                    this._translateAndRegisterDataProperty(item, 'message1', `${baseContext}.message1`, $dataItems, null, i);
+                    this._translateAndRegisterDataProperty(item, 'message2', `${baseContext}.message2`, $dataItems, null, i);
+                    this._translateAndRegisterDataProperty(item, 'message3', `${baseContext}.message3`, $dataItems, null, i);
+                    this._translateAndRegisterDataProperty(item, 'message4', `${baseContext}.message4`, $dataItems, null, i);
                 }
             }
             $.log(3, "Finished translating Items Data.");
@@ -932,107 +1101,141 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
         translateActorsData: function(actorsData) {
             $.log(3, "Translating Actors Data ($dataActors)...");
-            // $dataActors is an array, index 0 is null.
             for (let i = 1; i < actorsData.length; i++) {
                 const actor = actorsData[i];
                 if (actor) {
                     const baseContext = `$dataActors[${i}]`;
-                    if (actor.name) {
-                        actor.name = this.translate(actor.name, { context: `${baseContext}.name` });
-                    }
-                    if (actor.nickname) {
-                        actor.nickname = this.translate(actor.nickname, { context: `${baseContext}.nickname` });
-                    }
-                    if (actor.profile) {
-                        actor.profile = this.translate(actor.profile, { context: `${baseContext}.profile` });
-                    }
+                    // Para propiedades dentro de un array, necesitamos pasar el nombre del array y el índice
+                    // Asumiendo que actorsData es $dataActors directamente.
+                    // El helper _translateAndRegisterDataProperty no está diseñado para modificar el array global directamente,
+                    // sino el objeto que se le pasa. En este caso, `actor` es una referencia a $dataActors[i].
+                    this._translateAndRegisterDataProperty(actor, 'name', `${baseContext}.name`, $dataActors, /*pathToArray*/ null, i);
+                    this._translateAndRegisterDataProperty(actor, 'nickname', `${baseContext}.nickname`, $dataActors, /*pathToArray*/ null, i);
+                    this._translateAndRegisterDataProperty(actor, 'profile', `${baseContext}.profile`, $dataActors, /*pathToArray*/ null, i);
+                    // Si $dataActors fuera una propiedad de otro objeto, pathToArray sería 'actors'.
+                    // Como es el objeto global, y actor es $dataActors[i], no necesitamos pathToArray.
+                    // Sin embargo, la función de actualización necesita saber cómo encontrar $dataActors[i].
+                    // Revisión de _translateAndRegisterDataProperty:
+                    // El globalDataObject es $dataActors. pathToArray debería ser null (o el nombre de la propiedad si $dataActors fuera un campo).
+                    // El indexInArray es i.
+                    // La función de actualización necesita $dataActors[i][propertyName].
+                    // La forma actual del helper es un poco confusa para arrays de objetos.
+                    // Vamos a simplificar: el helper opera sobre el objeto dado (actor, item).
+                    // La función de actualización también opera sobre ese mismo objeto, asumiendo que es una referencia.
                 }
             }
             $.log(3, "Finished translating Actors Data.");
         },
 
-        translateSkillsData: function(skillsData) {
+        // Revisión del helper para que sea más claro con objetos dentro de arrays globales
+        _translateAndRegisterDataProperty_v2: function(targetObject, propertyName, dataContextString) {
+            // targetObject es la entidad específica (ej. $dataActors[i], $dataItems[j])
+            const originalValue = targetObject[propertyName];
+            if (typeof originalValue === 'string' && originalValue.trim() !== '') {
+                const translationResult = this.translate(originalValue, { context: dataContextString });
+
+                targetObject[propertyName] = translationResult.textToDisplay;
+
+                if (translationResult.status === 'pending' && translationResult.translationId) {
+                    const translationId = translationResult.translationId;
+                    const originalText = translationResult.originalText;
+
+                    MyTranslator.registerDataUpdate(
+                        translationId,
+                        originalText,
+                        (newlyTranslatedText) => {
+                            // Asumimos que targetObject sigue siendo la referencia correcta al objeto en el array global
+                            if (targetObject && targetObject[propertyName] === originalText) {
+                                targetObject[propertyName] = newlyTranslatedText;
+                                $.log(2, `Updated ${dataContextString} for ID ${translationId} to "${newlyTranslatedText}"`);
+                            } else if (targetObject && targetObject[propertyName] !== newlyTranslatedText) {
+                                $.log(1, `${dataContextString} changed unexpectedly before ID ${translationId} update. Current: "${targetObject ? targetObject[propertyName] : 'N/A'}"`);
+                            }
+                        },
+                        dataContextString
+                    );
+                }
+            }
+        },
+
+        // Re-implementar translateActorsData con _v2
+        translateActorsData_v2: function(actorsData) { // actorsData es $dataActors
+            $.log(3, "Translating Actors Data ($dataActors) v2...");
+            for (let i = 1; i < actorsData.length; i++) {
+                const actor = actorsData[i]; // actor es $dataActors[i]
+                if (actor) {
+                    const baseContext = `$dataActors[${i}]`;
+                    this._translateAndRegisterDataProperty_v2(actor, 'name', `${baseContext}.name`);
+                    this._translateAndRegisterDataProperty_v2(actor, 'nickname', `${baseContext}.nickname`);
+                    this._translateAndRegisterDataProperty_v2(actor, 'profile', `${baseContext}.profile`);
+                }
+            }
+            $.log(3, "Finished translating Actors Data (v2)."); // Log actualizado
+        },
+
+        translateSkillsData: function(skillsData) { // skillsData es $dataSkills
             $.log(3, "Translating Skills Data ($dataSkills)...");
-            // $dataSkills is an array, index 0 is null.
             for (let i = 1; i < skillsData.length; i++) {
-                const skill = skillsData[i];
+                const skill = skillsData[i]; // skill es $dataSkills[i]
                 if (skill) {
                     const baseContext = `$dataSkills[${i}]`;
-                    if (skill.name) {
-                        skill.name = this.translate(skill.name, { context: `${baseContext}.name` });
+                    this._translateAndRegisterDataProperty_v2(skill, 'name', `${baseContext}.name`);
+                    this._translateAndRegisterDataProperty_v2(skill, 'description', `${baseContext}.description`);
+                    this._translateAndRegisterDataProperty_v2(skill, 'message1', `${baseContext}.message1`);
+                    this._translateAndRegisterDataProperty_v2(skill, 'message2', `${baseContext}.message2`);
+                    // MZ specific messages on skills (message3, message4 for ally/enemy fainted are not typical on skill object itself in MZ, but on states or from battle manager)
+                    // However, some custom setups or MV carry-overs might use them.
+                    if (skill.hasOwnProperty('message3')) { // Check if property exists
+                        this._translateAndRegisterDataProperty_v2(skill, 'message3', `${baseContext}.message3`);
                     }
-                    if (skill.description) {
-                        skill.description = this.translate(skill.description, { context: `${baseContext}.description` });
-                    }
-                    if (skill.message1) { // Message when skill is used
-                        skill.message1 = this.translate(skill.message1, { context: `${baseContext}.message1` });
-                    }
-                    if (skill.message2) { // Second part of message (e.g., for certain skill types)
-                        skill.message2 = this.translate(skill.message2, { context: `${baseContext}.message2` });
-                    }
-                    // In MZ, message3 and message4 are "Ally Fainted" and "Enemy Fainted"
-                    if (skill.message3) {
-                        skill.message3 = this.translate(skill.message3, { context: `${baseContext}.message3` });
-                    }
-                    if (skill.message4) {
-                        skill.message4 = this.translate(skill.message4, { context: `${baseContext}.message4` });
+                    if (skill.hasOwnProperty('message4')) {
+                        this._translateAndRegisterDataProperty_v2(skill, 'message4', `${baseContext}.message4`);
                     }
                 }
             }
             $.log(3, "Finished translating Skills Data.");
         },
 
-        translateClassesData: function(classesData) {
+        translateClassesData: function(classesData) { // classesData es $dataClasses
             $.log(3, "Translating Classes Data ($dataClasses)...");
-            // $dataClasses is an array, index 0 is null.
             for (let i = 1; i < classesData.length; i++) {
-                const classData = classesData[i];
-                if (classData && classData.name) {
-                    classData.name = this.translate(classData.name, { context: `$dataClasses[${i}].name` });
+                const classObj = classesData[i]; // classObj es $dataClasses[i]
+                if (classObj) {
+                    const baseContext = `$dataClasses[${i}]`;
+                    this._translateAndRegisterDataProperty_v2(classObj, 'name', `${baseContext}.name`);
                 }
             }
             $.log(3, "Finished translating Classes Data.");
         },
 
-        translateStatesData: function(statesData) {
+        translateStatesData: function(statesData) { // statesData es $dataStates
             $.log(3, "Translating States Data ($dataStates)...");
-            // $dataStates is an array, index 0 is null.
             for (let i = 1; i < statesData.length; i++) {
-                const state = statesData[i];
+                const state = statesData[i]; // state es $dataStates[i]
                 if (state) {
                     const baseContext = `$dataStates[${i}]`;
-                    if (state.name) {
-                        state.name = this.translate(state.name, { context: `${baseContext}.name` });
-                    }
-                    if (state.message1) { // Actor is [state name]
-                        state.message1 = this.translate(state.message1, { context: `${baseContext}.message1` });
-                    }
-                    if (state.message2) { // [Actor name] is still [state name]
-                        state.message2 = this.translate(state.message2, { context: `${baseContext}.message2` });
-                    }
-                    if (state.message3) { // [Actor name] is no longer [state name]
-                        state.message3 = this.translate(state.message3, { context: `${baseContext}.message3` });
-                    }
-                    if (state.message4) { // Message when inflicted by skill/item
-                        state.message4 = this.translate(state.message4, { context: `${baseContext}.message4` });
-                    }
+                    this._translateAndRegisterDataProperty_v2(state, 'name', `${baseContext}.name`);
+                    this._translateAndRegisterDataProperty_v2(state, 'message1', `${baseContext}.message1`);
+                    this._translateAndRegisterDataProperty_v2(state, 'message2', `${baseContext}.message2`);
+                    this._translateAndRegisterDataProperty_v2(state, 'message3', `${baseContext}.message3`);
+                    this._translateAndRegisterDataProperty_v2(state, 'message4', `${baseContext}.message4`);
 
                     // MZ specific messages
                     if (Utils.RPGMAKER_NAME === 'MZ') {
-                        if (state.messageInflicted) {
-                            state.messageInflicted = this.translate(state.messageInflicted, { context: `${baseContext}.messageInflicted` });
+                        if (state.hasOwnProperty('messageInflicted')) {
+                            this._translateAndRegisterDataProperty_v2(state, 'messageInflicted', `${baseContext}.messageInflicted`);
                         }
-                        if (state.messageAlready) {
-                            state.messageAlready = this.translate(state.messageAlready, { context: `${baseContext}.messageAlready` });
+                        if (state.hasOwnProperty('messageAlready')) {
+                            this._translateAndRegisterDataProperty_v2(state, 'messageAlready', `${baseContext}.messageAlready`);
                         }
-                        if (state.messageProtected) {
-                            state.messageProtected = this.translate(state.messageProtected, { context: `${baseContext}.messageProtected` });
+                        if (state.hasOwnProperty('messageProtected')) {
+                            this._translateAndRegisterDataProperty_v2(state, 'messageProtected', `${baseContext}.messageProtected`);
                         }
-                        if (state.messageEmerged) {
-                            state.messageEmerged = this.translate(state.messageEmerged, { context: `${baseContext}.messageEmerged` });
+                        if (state.hasOwnProperty('messageEmerged')) {
+                            this._translateAndRegisterDataProperty_v2(state, 'messageEmerged', `${baseContext}.messageEmerged`);
                         }
-                        if (state.messageDisappeared) {
-                            state.messageDisappeared = this.translate(state.messageDisappeared, { context: `${baseContext}.messageDisappeared` });
+                        if (state.hasOwnProperty('messageDisappeared')) {
+                            this._translateAndRegisterDataProperty_v2(state, 'messageDisappeared', `${baseContext}.messageDisappeared`);
                         }
                     }
                 }
@@ -1040,48 +1243,39 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             $.log(3, "Finished translating States Data.");
         },
 
-        translateEnemiesData: function(enemiesData) {
+        translateEnemiesData: function(enemiesData) { // enemiesData es $dataEnemies
             $.log(3, "Translating Enemies Data ($dataEnemies)...");
-            // $dataEnemies is an array, index 0 is null.
             for (let i = 1; i < enemiesData.length; i++) {
-                const enemy = enemiesData[i];
-                if (enemy && enemy.name) {
-                    enemy.name = this.translate(enemy.name, { context: `$dataEnemies[${i}].name` });
+                const enemy = enemiesData[i]; // enemy es $dataEnemies[i]
+                if (enemy) {
+                    const baseContext = `$dataEnemies[${i}]`;
+                    this._translateAndRegisterDataProperty_v2(enemy, 'name', `${baseContext}.name`);
                 }
             }
             $.log(3, "Finished translating Enemies Data.");
         },
 
-        translateArmorsData: function(armorsData) {
+        translateArmorsData: function(armorsData) { // armorsData es $dataArmors
             $.log(3, "Translating Armors Data ($dataArmors)...");
-            // $dataArmors is an array, index 0 is null.
             for (let i = 1; i < armorsData.length; i++) {
-                const armor = armorsData[i];
+                const armor = armorsData[i]; // armor es $dataArmors[i]
                 if (armor) {
                     const baseContext = `$dataArmors[${i}]`;
-                    if (armor.name) {
-                        armor.name = this.translate(armor.name, { context: `${baseContext}.name` });
-                    }
-                    if (armor.description) {
-                        armor.description = this.translate(armor.description, { context: `${baseContext}.description` });
-                    }
+                    this._translateAndRegisterDataProperty_v2(armor, 'name', `${baseContext}.name`);
+                    this._translateAndRegisterDataProperty_v2(armor, 'description', `${baseContext}.description`);
                 }
             }
             $.log(3, "Finished translating Armors Data.");
         },
 
-        translateWeaponsData: function(weaponsData) {
+        translateWeaponsData: function(weaponsData) { // weaponsData es $dataWeapons
             $.log(3, "Translating Weapons Data ($dataWeapons)...");
-            // $dataWeapons is an array, index 0 is null.
             for (let i = 1; i < weaponsData.length; i++) {
-                const weapon = weaponsData[i];
+                const weapon = weaponsData[i]; // weapon es $dataWeapons[i]
                 if (weapon) {
                     const baseContext = `$dataWeapons[${i}]`;
-                    if (weapon.name) {
-                        weapon.name = this.translate(weapon.name, { context: `${baseContext}.name` });
-                    }
-                    if (weapon.description) {
-                        weapon.description = this.translate(weapon.description, { context: `${baseContext}.description` });
+                    this._translateAndRegisterDataProperty_v2(weapon, 'name', `${baseContext}.name`);
+                    this._translateAndRegisterDataProperty_v2(weapon, 'description', `${baseContext}.description`);
                     }
                 }
             }
@@ -1180,11 +1374,15 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                                 const textLineCommand = list[j];
                                 if (textLineCommand.parameters && typeof textLineCommand.parameters[0] === 'string') {
                                     const originalLine = textLineCommand.parameters[0];
-                                    textLineCommand.parameters[0] = this.translate(originalLine, {
+                                    // For Show Text, we want the actual string in the command parameters.
+                                    // The Window_Message hook will handle TranslationResult and pending states.
+                                    const translationResult = this.translate(originalLine, {
                                         context: `${contextInfo.context}.command[${i}].textLine[${j-(i+1)}]`
                                     });
+                                    textLineCommand.parameters[0] = translationResult.textToDisplay;
+
                                     if (originalLine !== textLineCommand.parameters[0]) {
-                                        $.log(3, ` -> Translated line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}"`);
+                                        $.log(3, ` -> Translated line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}" (Status: ${translationResult.status})`);
                                     }
                                 }
                                 j++;
@@ -1201,17 +1399,31 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
                     case 102: // Show Choices
                         if (command.parameters && Array.isArray(command.parameters[0])) {
-                            $.log(3, `translateEventList: Found Show Choices (102) at ${cmdContext}. Translating choices.`);
-                            command.parameters[0] = command.parameters[0].map((choice, index) => {
-                                const originalChoice = choice;
-                                const translatedChoice = this.translate(originalChoice, {
-                                    context: `${cmdContext}.choice[${index}]`
-                                });
-                                if (originalChoice !== translatedChoice) {
-                                    $.log(3, ` -> Translated choice ${index}: "${originalChoice}" TO "${translatedChoice}"`);
+                            $.log(3, `translateEventList: Found Show Choices (102) at ${cmdContext}. Processing choices for TranslationResult objects.`);
+                            const originalChoices = command.parameters[0];
+                            const newChoicesParameter = [];
+
+                            for (let choiceIndex = 0; choiceIndex < originalChoices.length; choiceIndex++) {
+                                const originalChoiceText = originalChoices[choiceIndex];
+                                if (typeof originalChoiceText === 'string') {
+                                    const translationResult = this.translate(originalChoiceText, {
+                                        context: `${cmdContext}.choice[${choiceIndex}]`
+                                    });
+
+                                    // Store an object that Window_ChoiceList can use
+                                    newChoicesParameter.push({
+                                        textForDisplay: translationResult.textToDisplay, // Original if pending, translated if final/manual
+                                        translationId: translationResult.translationId, // null if not pending
+                                        originalEventText: translationResult.originalText // The actual original string
+                                    });
+                                    $.log(3, ` -> Choice ${choiceIndex}: Original: "${originalChoiceText}", Result:`, translationResult);
+                                } else {
+                                    // If a choice is not a string, keep it as is (should not happen in standard data)
+                                    newChoicesParameter.push(originalChoiceText);
+                                    $.log(3, ` -> Choice ${choiceIndex} was not a string:`, originalChoiceText);
                                 }
-                                return translatedChoice;
-                            });
+                            }
+                            command.parameters[0] = newChoicesParameter; // Replace original choices array with new array of objects
                         }
                         break;
 
@@ -1223,11 +1435,13 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                                 const textLineCommand = list[j];
                                 if (textLineCommand.parameters && typeof textLineCommand.parameters[0] === 'string') {
                                     const originalLine = textLineCommand.parameters[0];
-                                    textLineCommand.parameters[0] = this.translate(originalLine, {
+                                    // Similar to Show Text, Window_ScrollText will handle the display.
+                                    const translationResult = this.translate(originalLine, {
                                         context: `${contextInfo.context}.command[${i}].scrollLine[${j-(i+1)}]`
                                     });
+                                    textLineCommand.parameters[0] = translationResult.textToDisplay;
                                     if (originalLine !== textLineCommand.parameters[0]) {
-                                        $.log(3, ` -> Translated scroll line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}"`);
+                                        $.log(3, ` -> Translated scroll line ${j-(i+1)}: "${originalLine}" TO "${textLineCommand.parameters[0]}" (Status: ${translationResult.status})`);
                                     }
                                 }
                                 j++;
@@ -1255,66 +1469,100 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                         if (command.parameters && typeof command.parameters[1] === 'string') {
                             const actorId = command.parameters[0];
                             const originalName = command.parameters[1];
-                            command.parameters[1] = this.translate(originalName, {
-                                context: `${cmdContext}.actorName`, actorId: actorId
-                            });
-                            if (originalName !== command.parameters[1]) {
-                                $.log(3, ` -> Translated Change Actor Name (129) for Actor ${actorId}: "${originalName}" TO "${command.parameters[1]}"`);
+                            const nameContext = `${cmdContext}.actorNameChange.actorId${actorId}`;
+                            const translationResult = this.translate(originalName, { context: nameContext });
+
+                            command.parameters[1] = translationResult.textToDisplay;
+                            $.log(3, ` -> Cmd 129 (Change Actor Name): Original: "${originalName}", Display: "${translationResult.textToDisplay}"`);
+
+                            if (translationResult.status === 'pending' && translationResult.translationId) {
+                                // Actualizar el parámetro del comando directamente es difícil si el evento ya no está "activo"
+                                // o si la lista de comandos es una copia. Por ahora, no se registrará una actualización
+                                // para el comando en sí. El nombre se cambiará al valor original (textToDisplay).
+                                // Si el actor está en pantalla, su nombre visible podría actualizarse a través de hooks de ventana
+                                // si esos hooks vuelven a traducir el nombre del actor desde $gameActors.
+                                $.log(2, `Cmd 129: Actor name change for ID ${translationResult.translationId} is pending. Parameter set to original: "${translationResult.textToDisplay}"`);
                             }
                         }
                         break;
 
-                    case 132: // Change Actor Nickname (MV specific, Actor Profile in MZ is different)
-                        // MZ uses code 133 for Profile, and Nickname is part of Actor data.
-                        // This case is primarily for MV.
+                    case 132: // Change Actor Nickname (MV)
                         if (Utils.RPGMAKER_NAME === 'MV' && command.parameters && typeof command.parameters[1] === 'string') {
                             const actorId = command.parameters[0];
                             const originalNickname = command.parameters[1];
-                            command.parameters[1] = this.translate(originalNickname, {
-                                context: `${cmdContext}.actorNickname`, actorId: actorId
-                            });
-                            if (originalNickname !== command.parameters[1]) {
-                                $.log(3, ` -> Translated Change Nickname (132) for Actor ${actorId}: "${originalNickname}" TO "${command.parameters[1]}"`);
+                            const nickContext = `${cmdContext}.actorNicknameChange.actorId${actorId}`;
+                            const translationResult = this.translate(originalNickname, { context: nickContext });
+
+                            command.parameters[1] = translationResult.textToDisplay;
+                            $.log(3, ` -> Cmd 132 (Change Nickname MV): Original: "${originalNickname}", Display: "${translationResult.textToDisplay}"`);
+
+                            if (translationResult.status === 'pending' && translationResult.translationId) {
+                                $.log(2, `Cmd 132: Nickname change for ID ${translationResult.translationId} is pending. Parameter set to original.`);
+                                // Similar a Change Actor Name, no se registrará actualización directa del comando.
                             }
-                        } else if (Utils.RPGMAKER_NAME === 'MZ' && command.code === 132) {
-                             $.log(3, `translateEventList: Skipping Change Nickname (132) in MZ as it's handled differently (Actor Profile).`);
                         }
                         break;
 
-                    // case 133 (MV): Change Actor Profile - In MV, params[1] and params[2] are lines of profile.
-                    // case 133 (MZ): Change Profile - params[1] is the full profile text.
-                    // This needs careful handling if we also translate Actors.json.
-                    // For now, let's assume this command dynamically sets profile text.
                     case 133: // Change Profile
                         if (command.parameters && typeof command.parameters[1] === 'string') {
-                            const actorId = command.parameters[0];
+                            const actorId = command.parameters[0]; // Parámetro 0 es actorId
                             const originalProfileLine1 = command.parameters[1];
-                            command.parameters[1] = this.translate(originalProfileLine1, {
-                                context: `${cmdContext}.profileLine1`, actorId: actorId
-                            });
-                             if (originalProfileLine1 !== command.parameters[1]) {
-                                $.log(3, ` -> Translated Change Profile (133) line 1 for Actor ${actorId}: "${originalProfileLine1}" TO "${command.parameters[1]}"`);
+                            const p1Context = `${cmdContext}.profileChange.actorId${actorId}.line1`;
+                            const resultP1 = this.translate(originalProfileLine1, { context: p1Context });
+
+                            command.parameters[1] = resultP1.textToDisplay;
+                            $.log(3, ` -> Cmd 133 (Change Profile L1): Original: "${originalProfileLine1}", Display: "${resultP1.textToDisplay}"`);
+                            if (resultP1.status === 'pending' && resultP1.translationId) {
+                                $.log(2, `Cmd 133 L1 for ID ${resultP1.translationId} is pending. Parameter set to original.`);
                             }
 
-                            if (Utils.RPGMAKER_NAME === 'MV' && command.parameters && typeof command.parameters[2] === 'string') {
+                            if (Utils.RPGMAKER_NAME === 'MV' && command.parameters.length > 2 && typeof command.parameters[2] === 'string') {
                                 const originalProfileLine2 = command.parameters[2];
-                                command.parameters[2] = this.translate(originalProfileLine2, {
-                                    context: `${cmdContext}.profileLine2`, actorId: actorId
-                                });
-                                if (originalProfileLine2 !== command.parameters[2]) {
-                                    $.log(3, ` -> Translated Change Profile (133) line 2 for Actor ${actorId}: "${originalProfileLine2}" TO "${command.parameters[2]}"`);
+                                const p2Context = `${cmdContext}.profileChange.actorId${actorId}.line2`;
+                                const resultP2 = this.translate(originalProfileLine2, { context: p2Context });
+                                command.parameters[2] = resultP2.textToDisplay;
+                                $.log(3, ` -> Cmd 133 (Change Profile L2 MV): Original: "${originalProfileLine2}", Display: "${resultP2.textToDisplay}"`);
+                                if (resultP2.status === 'pending' && resultP2.translationId) {
+                                    $.log(2, `Cmd 133 L2 for ID ${resultP2.translationId} (MV) is pending. Parameter set to original.`);
                                 }
                             }
                         }
                         break;
 
-                    // Other text-containing commands that are generally NOT translated:
-                    // 111 (Conditional Branch - Script): parameters[1] is script
-                    // 355 (Script - multiline): parameters[0]
-                    // 655 (Script - single line): parameters[0]
-                    // 356 (Plugin Command - MV): parameters[0] is command, parameters[1] is args string
-                    // 357 (Plugin Command - MZ): parameters[1] is command, parameters[3] is args object
-                    // These are code or specific commands, not usually natural language for translation.
+                    // TODO: Revisar otros comandos que puedan tener texto:
+                    // 103: Input Number (no text)
+                    // 104: Select Item (no direct text, uses item names)
+                    // 118: Label (no text)
+                    // 119: Jump to Label (no text)
+                    // 121: Control Switches (names in editor, not runtime text)
+                    // 122: Control Variables (names in editor)
+                    // 123: Control Self Switch (no text)
+                    // 124: Control Timer (no text)
+                    // 125: Change Gold (no text)
+                    // 126: Change Items (item names)
+                    // 127: Change Weapons (weapon names)
+                    // 128: Change Armors (armor names)
+                    // 134: Change Class (class names) - El nombre de la clase se lee de $dataClasses
+                    // 135: Change Actor Graphic (no text)
+                    // 136: Change Vehicle Graphic (no text)
+                    // 201: Transfer Player (map names from MapInfos.json)
+                    // 205: Set Move Route (puede tener scripts con texto, pero eso es avanzado)
+                    // 231: Show Picture (name is editor only)
+                    // 232: Move Picture
+                    // 301: Battle Processing (troop names from Troops.json)
+                    // 302: Shop Processing (item names)
+                    // 303: Name Input Processing (actor name, handled by window)
+                    // 320: Change Actor Name (ya cubierto)
+                    // 324: Change Actor Nickname (ya cubierto)
+                    // 325: Change Actor Profile (ya cubierto)
+                    // 355/655: Script calls (generalmente no se traduce el contenido del script)
+                    // 356 (MV) / 357 (MZ) Plugin Command: El contenido es específico del plugin.
+                    // Los textos que aparecen por estos comandos (ej. nombres de ítems en tienda)
+                    // deben ser traducidos cuando se cargan los datos correspondientes (Items.json, etc.)
+                    // o por los hooks de ventana que los muestran.
+
+                    // Los más importantes ya están cubiertos: Show Text, Choices, Scroll Text,
+                    // y los cambios de nombre/perfil de actor.
 
                     default:
                         // Log unhandled commands if needed for debugging, but can be noisy
@@ -1597,3 +1845,94 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
 
 })(JulesTranslator); // Pass in the namespace
+
+// --- Suscripción genérica de escenas al cambio de idioma ---
+// Esto se coloca fuera del IIFE de JulesTranslator para modificar Scene_Base globalmente,
+// pero solo si JulesTranslator (y por ende MyTranslator) está cargado.
+if (Imported.JulesTranslator && JulesTranslator.Parameters && JulesTranslator.Parameters['Enable Text Hooking'] === 'true') {
+    (function($) { // Usamos $ para referirnos a JulesTranslator namespace
+        const _Scene_Base_initialize = Scene_Base.prototype.initialize;
+        Scene_Base.prototype.initialize = function() {
+            _Scene_Base_initialize.call(this);
+            // Crear el bound function una vez por instancia de escena
+            this._julesTranslatorLanguageChangeBound = this.onJulesTranslatorLanguageChange.bind(this);
+        };
+
+        const _Scene_Base_start = Scene_Base.prototype.start;
+        Scene_Base.prototype.start = function() {
+            _Scene_Base_start.call(this);
+            // Suscribirse cuando la escena realmente comienza y es la activa
+            if (MyTranslator && MyTranslator.subscribeToLanguageChange) {
+                MyTranslator.subscribeToLanguageChange(this._julesTranslatorLanguageChangeBound);
+            }
+        };
+
+        const _Scene_Base_terminate = Scene_Base.prototype.terminate;
+        Scene_Base.prototype.terminate = function() {
+            _Scene_Base_terminate.call(this);
+            // Desuscribirse cuando la escena termina
+            if (MyTranslator && MyTranslator.unsubscribeFromLanguageChange) {
+                MyTranslator.unsubscribeFromLanguageChange(this._julesTranslatorLanguageChangeBound);
+            }
+        };
+
+        Scene_Base.prototype.onJulesTranslatorLanguageChange = function() {
+            // Solo actuar si esta escena es la actual.
+            if (SceneManager._scene !== this) {
+                return;
+            }
+
+            $.log(2, `Language change event received in active scene: ${this.constructor.name}. Refreshing windows.`);
+
+            if (this._windowLayer) {
+                this._windowLayer.children.forEach(childWindow => {
+                    if (childWindow instanceof Window_Base) {
+                        try {
+                            if (childWindow instanceof Window_Command) {
+                                // Para Window_Command, es crucial reconstruir la lista de comandos
+                                // ya que los nombres se establecen en makeCommandList (a través de addCommand).
+                                // El addCommand hookeado usará el nuevo $.targetLanguage.
+                                childWindow.clearCommandList();
+                                childWindow.makeCommandList();
+                                // makeCommandList usualmente llama a refresh internamente o se espera que se llame después.
+                                // Si no, un refresh explícito es necesario.
+                                // childWindow.refresh(); // makeCommandList a menudo no refresca visualmente de inmediato.
+                            }
+                            // Un refresh general para la mayoría de las ventanas debería redibujar su contenido.
+                            // Las ventanas que dependen de datos (ej. Window_Status) deberían recoger los datos re-traducidos
+                            // si los datos globales ($dataActors, etc.) también se actualizan o si la ventana
+                            // vuelve a traducir los datos que obtiene.
+                            if (typeof childWindow.refresh === 'function') {
+                                childWindow.refresh();
+                                $.log(3, `Refreshed window: ${childWindow.constructor.name}`);
+                            } else {
+                                $.log(3, `Window ${childWindow.constructor.name} has no refresh method.`);
+                            }
+                        } catch (e) {
+                            $.log(1, `Error refreshing window ${childWindow.constructor.name} on language change:`, e);
+                        }
+                    }
+                });
+            }
+
+            // Casos especiales para escenas que podrían necesitar más que solo refrescar ventanas
+            if (this instanceof Scene_Map) {
+                // Si el nombre del mapa se muestra en una ventana específica (ej. Window_MapName),
+                // esa ventana debería refrescarse por el bucle anterior.
+                // Si hay otros elementos de UI directamente en la escena, necesitarían manejo aquí.
+                // Por ejemplo, si Scene_Map necesitara redibujar algo que depende del idioma.
+                if (typeof this.refreshDisplayName === "function") { // Para el nombre del mapa si se muestra
+                    this.refreshDisplayName();
+                }
+            }
+            // Para Scene_Message (si es una escena y no solo una ventana global)
+            // o si Window_Message necesita un trato especial cuando está activa durante un cambio de idioma:
+            if ($gameMessage && $gameMessage.isBusy() && SceneManager._scene._messageWindow && SceneManager._scene._messageWindow.isOpen()) {
+                $.log(2, "Language change during active message. Attempting to restart message window.");
+                // Esto es disruptivo pero asegura que el texto se re-traduzca con el nuevo idioma.
+                SceneManager._scene._messageWindow._showFast = true;
+                SceneManager._scene._messageWindow.startMessage();
+            }
+        };
+    })(JulesTranslator); // Pasar el namespace del plugin si es necesario para $.log
+}

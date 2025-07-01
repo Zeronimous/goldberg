@@ -110,20 +110,43 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
             });
 
             try {
-                // This is an async operation. The main `MyTranslator.translate` function
-                // needs to be designed to handle this if real-time machine translation is used.
-                // For now, the main plugin uses a synchronous placeholder.
-                // A full implementation would require a more complex async handling flow.
-                $.log(3, `Google: Translating "${text}" from ${fromLang} to ${toLang}`);
-                // const data = await this._fetch(`${this.apiUrl}?${params.toString()}`);
-                // if (data && data.data && data.data.translations && data.data.translations.length > 0) {
-                //     return data.data.translations[0].translatedText;
-                // }
-                // $.log(1, "Google Translate: No translation found in response or malformed response.", data);
-                return `[Google:${toLang}] ${text}`; // Placeholder for async
-            } catch (error) {
-                $.log(1, "Google Translate API error:", error);
-                return text; // Fallback to original text on error
+                // This is an async operation.
+                $.log(3, `GoogleTranslate: Attempting to translate "${text}" from ${fromLang || 'auto'} to ${toLang}.`);
+                const fullUrl = `${this.apiUrl}?${params.toString()}`;
+
+                // Using the _fetch method from BaseMachineTranslator
+                const data = await this._fetch(fullUrl); // _fetch handles retries internally
+
+                if (data && data.data && data.data.translations && data.data.translations.length > 0 &&
+                    data.data.translations[0].translatedText) {
+                    $.log(3, `GoogleTranslate: Successfully translated to "${data.data.translations[0].translatedText}"`);
+                    return { translatedText: data.data.translations[0].translatedText, error: null };
+                } else {
+                    $.log(1, "GoogleTranslate: No translation found in response or malformed response.", data);
+                    // Attempt to find a more specific error message from Google's response structure
+                    let specificErrorMsg = "Malformed response (no translation text).";
+                    if (data && data.error && data.error.message) {
+                        specificErrorMsg = data.error.message;
+                    }
+                    return { translatedText: text, error: specificErrorMsg };
+                }
+            } catch (error) { // Catch errors from _fetch or other issues
+                let specificErrorMessage = error.message || "Unknown API error";
+                if (error.body && typeof error.body === 'object' && error.body.error) {
+                    if (error.body.error.message) {
+                        specificErrorMessage = error.body.error.message;
+                    } else if (error.body.error.errors && error.body.error.errors.length > 0 && error.body.error.errors[0].message) {
+                        specificErrorMessage = error.body.error.errors[0].message;
+                    }
+                } else if (error.body && typeof error.body === 'string') {
+                    specificErrorMessage = error.body.substring(0, 200);
+                }
+                $.log(1, `GoogleTranslate: Error during API call (status ${error.status || 'N/A'}):`, specificErrorMessage, error.body || '');
+                if (error.isPermanent) {
+                    $.log(1, "GoogleTranslate: Encountered a permanent error. Disabling GoogleTranslateService for this session.");
+                    this.isDisabledForSession = true;
+                }
+                return { translatedText: text, error: `Google API call failed: ${specificErrorMessage}` };
             }
         }
     }
