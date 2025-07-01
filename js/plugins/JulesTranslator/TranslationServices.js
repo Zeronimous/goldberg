@@ -332,6 +332,72 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
     $.TranslationServices.DeepLService = DeepLService;
     $.TranslationServices.BaseMachineTranslator = BaseMachineTranslator; // If useful for extensibility
 
-    $.log(2, "TranslationServices module loaded with service shells.");
+
+    // --- Google Translate Free Service (Unofficial) ---
+    class GoogleTranslateFreeService extends BaseMachineTranslator {
+        constructor() {
+            super(null); // No API key needed
+            this.apiUrl = 'https://translate.googleapis.com/translate_a/single';
+            this.isDisabledForSession = false; // Puede deshabilitarse por errores repetidos
+            $.log(2, `GoogleTranslateFreeService instance created. WARNING: This is an unofficial, unstable endpoint.`);
+        }
+
+        async translate(text, fromLang, toLang, contextInfo = {}) {
+            if (this.isDisabledForSession) {
+                $.log(1, "GoogleTranslateFreeService is disabled for this session.");
+                return { translatedText: text, error: "Service disabled for session (unofficial)." };
+            }
+            if (!text) {
+                return { translatedText: "", error: null };
+            }
+
+            const params = new URLSearchParams({
+                client: 'gtx',
+                sl: fromLang && fromLang.toLowerCase() !== 'auto' ? fromLang.toLowerCase() : 'auto',
+                tl: toLang.toLowerCase(),
+                dt: 't',
+                q: text
+            });
+
+            const fullUrl = `${this.apiUrl}?${params.toString()}`;
+            $.log(3, `GoogleTranslateFree: Translating "${text}" from ${params.get('sl')} to ${params.get('tl')}. URL: ${fullUrl}`);
+
+            try {
+                const response = await fetch(fullUrl);
+
+                if (!response.ok) {
+                    $.log(1, `GoogleTranslateFree: HTTP error! status: ${response.status} ${response.statusText} for URL: ${fullUrl}`);
+                    if (response.status === 429 || response.status >= 500) {
+                        this.isDisabledForSession = true;
+                        $.log(1, `GoogleTranslateFreeService disabled for session due to HTTP ${response.status}.`);
+                    }
+                    return { translatedText: text, error: `HTTP error ${response.status}` };
+                }
+
+                const data = await response.json();
+                // Response structure: [[["Hola Mundo","Hello World",null,null,1]],null,"en",null,null,null,null,[]]
+                if (data && Array.isArray(data) && data[0] && Array.isArray(data[0]) &&
+                    data[0][0] && typeof data[0][0][0] === 'string') {
+                    const translated = data[0].map(segment => segment[0]).join('');
+                    $.log(3, `GoogleTranslateFree: Successfully translated to "${translated}"`);
+                    return { translatedText: translated, error: null };
+                } else {
+                    $.log(1, "GoogleTranslateFree: Malformed response or no translation found.", data);
+                    this.isDisabledForSession = true;
+                    return { translatedText: text, error: "Malformed response from GoogleTranslateFree API." };
+                }
+            } catch (error) {
+                $.log(1, "GoogleTranslateFree: Error during API call:", error.message || error);
+                this.isDisabledForSession = true;
+                return { translatedText: text, error: `GoogleTranslateFree API Error: ${error.message || 'Unknown error'}` };
+            }
+        }
+    }
+
+    // Expose the new service
+    $.TranslationServices.GoogleTranslateFreeService = GoogleTranslateFreeService;
+
+
+    $.log(2, "TranslationServices module loaded."); // Updated log
 
 })(JulesTranslator);

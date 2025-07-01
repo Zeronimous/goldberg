@@ -16,6 +16,8 @@
  * @value google
  * @option DeepL
  * @value deepl
+ * @option Google Translate (Free/Unofficial)
+ * @value googlefree
  * @default
  *
  * @param Google API Key
@@ -536,9 +538,17 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                 } else {
                     $.log(1, 'DeepLService class not found, cannot initialize.');
                 }
+            } else if ($.machineService === 'googlefree') {
+                if ($.TranslationServices && $.TranslationServices.GoogleTranslateFreeService) {
+                    this.translationServices.googlefree = new $.TranslationServices.GoogleTranslateFreeService();
+                    // GoogleTranslateFreeService constructor logs its creation and warning.
+                } else {
+                    $.log(1, 'GoogleTranslateFreeService class not found, cannot initialize.');
+                }
             }
 
-            $.log(2, `JulesTranslator initialized. Target Lang: ${$.targetLanguage}, Original Lang: ${$.gameOriginalLanguage}`);
+
+            $.log(2, `JulesTranslator initialized. Target Lang: ${$.targetLanguage}, Original Lang: ${$.gameOriginalLanguage}, Service: ${$.machineService || 'None'}`);
             $.log(3, 'Parameters:', $.Parameters);
             $.log(3, 'Manual translation path:', $.manualTranslationPath);
         },

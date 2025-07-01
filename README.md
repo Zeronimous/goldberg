@@ -132,15 +132,15 @@ Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el
 
 *   **`Machine Translation Service`**:
     *   Elige el servicio de traducción automática.
-    *   Opciones: `""` (None), `"google"`, `"deepl"`.
+    *   Opciones: `""` (None), `"google"` (API de pago de Google), `"deepl"` (API de DeepL, compatible con Free y Pro), `"googlefree"` (Método no oficial y potencialmente inestable de Google Translate, sin API Key).
     *   Valor por defecto: `""`.
 
 *   **`Google API Key`**:
-    *   Tu clave API para Google Cloud Translation API.
+    *   Tu clave API para Google Cloud Translation API (necesaria si `Machine Translation Service` es `"google"`).
     *   Valor por defecto: `""`.
 
 *   **`DeepL API Key`**:
-    *   Tu clave de autenticación para la API de DeepL.
+    *   Tu clave de autenticación para la API de DeepL (necesaria si `Machine Translation Service` es `"deepl"`). Compatible con claves API de DeepL Free y DeepL Pro.
     *   Valor por defecto: `""`.
 
 *   **`Enable Text Hooking`**:
@@ -267,7 +267,7 @@ Puedes usar comandos de plugin en tus eventos para controlar el traductor durant
 *   `JulesTranslator reload`
     *   Limpia la caché de traducción y recarga los archivos de traducción manual para el idioma actual.
 *   `JulesTranslator openLanguageMenu`
-    *   Abre la escena de selección de idioma en el juego.
+    *   Abre la escena de selección de idioma en el juego. **Nota**: Para que los jugadores puedan usar esto, debes llamar a este comando desde un evento del juego (ej. un PNJ, un objeto del mapa, un ítem, o a través de un plugin de menú personalizado). La tecla F10 (o la configurada en `Toggle Hotkey Key`) solo activa/desactiva la traducción, no abre este menú.
 
 **Estilo MZ:**
 Usa los comandos registrados en el editor de plugins de MZ:
@@ -301,6 +301,10 @@ Usa los comandos registrados en el editor de plugins de MZ:
     *   Asegúrate de haber ajustado la política de ejecución de PowerShell (`Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`).
     *   Verifica que todos los archivos necesarios (`.ps1`, `configJules.json`, `JulesTranslator.js`, carpeta `JulesTranslator/`) estén en el mismo directorio desde donde ejecutas el script.
     *   Comprueba que la ruta al juego en `configJules.json` o la que introduces sea correcta.
+*   **La opción "Google Translate (Free/Unofficial)" no funciona o da errores**:
+    *   Esta opción utiliza un endpoint no oficial de Google que no requiere clave API.
+    *   **ADVERTENCIA**: Su uso es bajo tu propio riesgo. Google puede cambiar, restringir o bloquear este endpoint en cualquier momento sin previo aviso, lo que haría que esta opción deje de funcionar. También podría ir en contra de los Términos de Servicio de Google.
+    *   Se proporciona como una alternativa experimental si no se dispone de una clave API para los servicios oficiales, pero su fiabilidad no está garantizada. Se recomienda enfáticamente usar las opciones de API oficiales (`"google"` o `"deepl"`) para una traducción estable.
 
 ---
 

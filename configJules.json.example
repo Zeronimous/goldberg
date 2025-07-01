@@ -2,7 +2,7 @@
   "info": "Rename this file to configJules.json and edit the values below.",
   "pluginParameters": {
     "Target Language": "en",
-    "Machine Translation Service": "",
+    "Machine Translation Service": "", // Options: "", "google", "deepl", "googlefree"
     "Google API Key": "YOUR_GOOGLE_API_KEY_HERE",
     "DeepL API Key": "YOUR_DEEPL_API_KEY_HERE",
     "Enable Text Hooking": "true",
