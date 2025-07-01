@@ -1,0 +1,37 @@
+{
+  "info": "Rename this file to configJules.json and edit the values below.",
+  "pluginParameters": {
+    "Target Language": "en",
+    "Machine Translation Service": "",
+    "Google API Key": "YOUR_GOOGLE_API_KEY_HERE",
+    "DeepL API Key": "YOUR_DEEPL_API_KEY_HERE",
+    "Enable Text Hooking": "true",
+    "Enable Data File Translation": "true",
+    "Translate Actors.json": "true",
+    "Translate Classes.json": "true",
+    "Translate Skills.json": "true",
+    "Translate Items.json": "true",
+    "Translate Weapons.json": "true",
+    "Translate Armors.json": "true",
+    "Translate Enemies.json": "true",
+    "Translate States.json": "true",
+    "Translate System.json": "true",
+    "Translate MapInfos.json": "true",
+    "Translate Event Text": "true",
+    "Translate Troops.json": "true",
+    "Enable Translation Cache": "true",
+    "Manual Translation Folder": "translations",
+    "Game Original Language": "ja",
+    "Log Level": "2",
+    "Max Retries On Error": "2",
+    "Initial Retry Delay Ms": "500",
+    "Toggle Hotkey Key": "F10",
+    "Toggle Hotkey Modifier": "",
+    "Available Target Languages": "en,es,fr,de,ja,ko,zh-CN,zh-TW,pt,it,ru",
+    "Translator Options Help Text": "Select target language for translation."
+  },
+  "scriptSettings": {
+    "gamePath": "PASTE_YOUR_GAME_ROOT_FOLDER_PATH_HERE (e.g., C:/Games/MyRPG)",
+    "verboseLogging": true
+  }
+}
