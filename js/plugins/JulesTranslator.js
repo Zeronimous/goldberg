@@ -133,6 +133,14 @@
  * @off Disable
  * @default true
  *
+ * @param Translate Troops.json
+ * @parent ---- Data File Translation Options ----
+ * @desc Translate names in Troops.json. (Mainly for editor, but some plugins might display them)
+ * @type boolean
+ * @on Enable
+ * @off Disable
+ * @default true
+ *
  * @param ---- Caching Options ----
  * @default
  *
@@ -397,7 +405,8 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
         states: ($.Parameters['Translate States.json'] === 'true'),
         system: ($.Parameters['Translate System.json'] === 'true'),
         mapInfos: ($.Parameters['Translate MapInfos.json'] === 'true'),
-        eventText: ($.Parameters['Translate Event Text'] === 'true')
+        eventText: ($.Parameters['Translate Event Text'] === 'true'),
+        troops: ($.Parameters['Translate Troops.json'] === 'true')
     };
 
     $.enableCache = ($.Parameters['Enable Translation Cache'] === 'true');
@@ -743,6 +752,13 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                         $.log(2, `Skipping translation for MapInfos.json (disabled by parameters).`);
                     }
                     break;
+                case '$dataTroops':
+                    if ($.translateDataFiles.troops) {
+                        this.translateTroopsData(dataObject);
+                    } else {
+                        $.log(2, `Skipping translation for Troops.json (disabled by parameters).`);
+                    }
+                    break;
                 // Add cases for other data files here
                 default:
                     if (fileName && fileName.startsWith('Map') && fileName.endsWith('.json')) {
@@ -808,6 +824,24 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             // Attack Motions (some might have names or messages if custom) - typically not text-heavy
             // Party Members (initial party - names should be from $dataActors)
             // Title Commands (window positions, etc. - names handled by Window_TitleCommand hook)
+
+            if (systemData.currencyUnit) {
+                systemData.currencyUnit = this.translate(systemData.currencyUnit, { context: '$dataSystem.currencyUnit'});
+            }
+
+            if (systemData.variables && Array.isArray(systemData.variables)) {
+                // Index 0 is often unused, but iterate all just in case.
+                systemData.variables = systemData.variables.map((name, index) =>
+                    (typeof name === 'string' && name) ? this.translate(name, { context: `$dataSystem.variables[${index}]`}) : name
+                );
+            }
+
+            if (systemData.switches && Array.isArray(systemData.switches)) {
+                // Index 0 is often unused.
+                systemData.switches = systemData.switches.map((name, index) =>
+                    (typeof name === 'string' && name) ? this.translate(name, { context: `$dataSystem.switches[${index}]`}) : name
+                );
+            }
             // ... and other fields as necessary
 
             $.log(3, "Finished translating System Data.");
@@ -932,9 +966,25 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                     if (state.message4) { // Message when inflicted by skill/item
                         state.message4 = this.translate(state.message4, { context: `${baseContext}.message4` });
                     }
-                    // MZ also has messageInflicted, messageAlready, messageProtected, messageEmerged, messageDisappeared
-                    // These would need to be added if targeting MZ specifically for these fields.
-                    // For now, sticking to common MV fields that are also mostly in MZ.
+
+                    // MZ specific messages
+                    if (Utils.RPGMAKER_NAME === 'MZ') {
+                        if (state.messageInflicted) {
+                            state.messageInflicted = this.translate(state.messageInflicted, { context: `${baseContext}.messageInflicted` });
+                        }
+                        if (state.messageAlready) {
+                            state.messageAlready = this.translate(state.messageAlready, { context: `${baseContext}.messageAlready` });
+                        }
+                        if (state.messageProtected) {
+                            state.messageProtected = this.translate(state.messageProtected, { context: `${baseContext}.messageProtected` });
+                        }
+                        if (state.messageEmerged) {
+                            state.messageEmerged = this.translate(state.messageEmerged, { context: `${baseContext}.messageEmerged` });
+                        }
+                        if (state.messageDisappeared) {
+                            state.messageDisappeared = this.translate(state.messageDisappeared, { context: `${baseContext}.messageDisappeared` });
+                        }
+                    }
                 }
             }
             $.log(3, "Finished translating States Data.");
@@ -998,6 +1048,25 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                 }
             }
             $.log(3, "Finished translating Map Infos Data.");
+        },
+
+        translateTroopsData: function(troopsData) {
+            $.log(3, "Translating Troops Data ($dataTroops)...");
+            // $dataTroops is an array, index 0 is null.
+            for (let i = 1; i < troopsData.length; i++) {
+                const troop = troopsData[i];
+                if (troop && troop.name) {
+                    troop.name = this.translate(troop.name, { context: `$dataTroops[${i}].name` });
+                }
+                // Note: Troop event pages are also part of the troop data.
+                // If these event pages need to be translated *when $dataTroops is loaded*,
+                // we would need to call translateEventList here.
+                // However, battle events are often dynamically composed or map-specific.
+                // For now, only translating troop.name.
+                // If troop-specific common events are used, they are in $dataCommonEvents.
+                // If map-specific battle events, they are in $dataMapXXX.
+            }
+            $.log(3, "Finished translating Troops Data.");
         },
 
         translateMapData: function(mapData, mapFileName) {
