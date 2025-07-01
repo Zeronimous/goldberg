@@ -23,9 +23,13 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
         }
 
         // Helper for making HTTP requests (conceptual, using Fetch API)
-        async _fetch(url, options = {}, maxRetries = 2, attempt = 1) {
-            const retryableStatusCodes = [429, 500, 502, 503, 504]; // Status codes that might warrant a retry
-            const baseRetryDelay = 500; // ms
+        async _fetch(url, options = {}, attempt = 1) {
+            // Use plugin parameters for retry configuration
+            const maxRetries = $.maxRetriesOnError; // Parsed from plugin params
+            const initialRetryDelay = $.initialRetryDelayMs; // Parsed from plugin params
+
+            const retryableStatusCodes = [429, 500, 502, 503, 504];
+            const permanentErrorStatusCodes = [400, 401, 403]; // Errors that should not be retried
 
             try {
                 const response = await fetch(url, options);
@@ -41,17 +45,20 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     } catch (e) {
                         errorBody = `Failed to parse error body: ${e.message}`;
                     }
-                    $.log(1, `API request failed (Attempt ${attempt}/${maxRetries + 1}): ${response.status} ${response.statusText}`, errorBody);
+
+                    const logMessage = `API request failed (Attempt ${attempt}/${maxRetries + 1}): ${response.status} ${response.statusText}`;
+                    $.log(1, logMessage, errorBody);
 
                     const error = new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
                     error.status = response.status;
                     error.body = errorBody;
+                    error.isPermanent = permanentErrorStatusCodes.includes(response.status);
 
-                    if (retryableStatusCodes.includes(response.status) && attempt <= maxRetries) {
-                        const delay = baseRetryDelay * Math.pow(2, attempt - 1); // Exponential backoff
+                    if (!error.isPermanent && retryableStatusCodes.includes(response.status) && attempt <= maxRetries) {
+                        const delay = initialRetryDelay * Math.pow(2, attempt - 1); // Exponential backoff
                         $.log(2, `Retrying API call to ${url} in ${delay}ms... (Attempt ${attempt + 1})`);
                         await new Promise(resolve => setTimeout(resolve, delay));
-                        return this._fetch(url, options, maxRetries, attempt + 1); // Recursive call for retry
+                        return this._fetch(url, options, attempt + 1); // Recursive call for retry
                     }
                     throw error; // Non-retryable error or max retries exceeded
                 }
@@ -64,16 +71,18 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     return await response.text();
                 }
             } catch (error) { // Catches network errors or errors thrown by non-ok responses after retries
-                // If it's a custom error with status, it's already logged from the !response.ok block
-                // This catch is more for fetch() itself failing (e.g. network down)
                 if (!error.status && attempt <= maxRetries) { // Likely a network error if no status, and retries left
-                    const delay = baseRetryDelay * Math.pow(2, attempt - 1);
+                    const delay = initialRetryDelay * Math.pow(2, attempt - 1);
                     $.log(1, `Network error during API call (Attempt ${attempt}/${maxRetries + 1}) for ${url}: ${error.message}. Retrying in ${delay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    return this._fetch(url, options, maxRetries, attempt + 1);
+                    return this._fetch(url, options, attempt + 1);
                 }
-                // Final failure after retries or non-retryable error
-                $.log(1, `API request error in _fetch for ${url} (Final after ${attempt-1} retries):`, error.message, error.status ? `Status: ${error.status}` : '', error.body || '');
+                // Final failure after retries or non-retryable error (could be network or a thrown HTTP error)
+                // Ensure isPermanent is set if not already (for network errors, it's not permanent by default)
+                if (typeof error.isPermanent === 'undefined') {
+                    error.isPermanent = false; // Network errors are generally considered transient unless all retries fail
+                }
+                $.log(1, `API request error in _fetch for ${url} (Final after ${attempt-1} retries or permanent error):`, error.message, error.status ? `Status: ${error.status}` : '', error.body || '', `Permanent: ${error.isPermanent}`);
                 throw error;
             }
         }
@@ -128,13 +137,19 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
             this.apiUrl = this.isFreeTier ?
                 'https://api-free.deepl.com/v2/translate' :
                 'https://api.deepl.com/v2/translate';
+            this.isDisabledForSession = false;
             $.log(2, `DeepLService instance created. API Tier: ${this.isFreeTier ? 'Free' : 'Pro'}. URL: ${this.apiUrl}`);
         }
 
         async translate(text, fromLang, toLang, contextInfo = {}) {
+            if (this.isDisabledForSession) {
+                $.log(1, "DeepLService is disabled for this session due to a previous permanent error.");
+                return { translatedText: text, error: "Service disabled for session." };
+            }
             if (!this.apiKey) {
                 $.log(1, "DeepL API Key is missing for DeepLService.");
-                return { translatedText: text, error: "API key missing" }; // Return object with error
+                this.isDisabledForSession = true; // Missing key is a permanent issue for this session
+                return { translatedText: text, error: "API key missing" };
             }
             if (!text) {
                 return { translatedText: "", error: null }; // Nothing to translate
@@ -201,9 +216,13 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     $.log(1, "DeepL: No translation found in response or malformed response.", data);
                     return { translatedText: text, error: "Malformed response from DeepL API (no translation text)." };
                 }
-            } catch (error) { // This catch is for network errors or if _fetch itself throws before response.ok check
-                $.log(1, "DeepL: Network or other error during API call:", error);
-                return { translatedText: text, error: `Network error or invalid response: ${error.message || error}` };
+            } catch (error) {
+                $.log(1, "DeepL: Error during API call:", error.message || error, error.body ? `Body: ${JSON.stringify(error.body)}` : '');
+                if (error.isPermanent) {
+                    $.log(1, "DeepL: Encountered a permanent error. Disabling DeepLService for this session.");
+                    this.isDisabledForSession = true;
+                }
+                return { translatedText: text, error: `DeepL API Error: ${error.message || 'Unknown error'}` };
             }
         }
     }
@@ -218,12 +237,18 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
         constructor(apiKey) {
             super(apiKey);
             this.apiUrl = 'https://translation.googleapis.com/language/translate/v2';
+            this.isDisabledForSession = false;
             $.log(2, `GoogleTranslateService instance created. API URL: ${this.apiUrl}`);
         }
 
         async translate(text, fromLang, toLang, contextInfo = {}) {
+            if (this.isDisabledForSession) {
+                $.log(1, "GoogleTranslateService is disabled for this session due to a previous permanent error.");
+                return { translatedText: text, error: "Service disabled for session." };
+            }
             if (!this.apiKey) {
                 $.log(1, "Google API Key is missing for GoogleTranslateService.");
+                this.isDisabledForSession = true; // Missing key is a permanent issue
                 return { translatedText: text, error: "API key missing" };
             }
             if (!text) {
@@ -270,6 +295,10 @@ JulesTranslator.TranslationServices = JulesTranslator.TranslationServices || {};
                     specificErrorMessage = error.body.substring(0, 200); // Truncate long plain text errors
                 }
                 $.log(1, `GoogleTranslate: Error during API call (status ${error.status || 'N/A'}):`, specificErrorMessage, error.body || '');
+                if (error.isPermanent) {
+                    $.log(1, "GoogleTranslate: Encountered a permanent error. Disabling GoogleTranslateService for this session.");
+                    this.isDisabledForSession = true;
+                }
                 return { translatedText: text, error: `Google API call failed: ${specificErrorMessage}` };
             }
         }

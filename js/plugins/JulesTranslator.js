@@ -174,6 +174,23 @@
  * @parent ---- Debug Options ----
  * @desc Level of detail for console logs.
  *
+ * @param ---- Machine Translation Options ----
+ * @default
+ *
+ * @param Max Retries On Error
+ * @parent ---- Machine Translation Options ----
+ * @desc Maximum number of retries for machine translation API calls on transient errors (e.g., network, server 50x).
+ * @type number
+ * @min 0
+ * @default 2
+ *
+ * @param Initial Retry Delay Ms
+ * @parent ---- Machine Translation Options ----
+ * @desc Initial delay in milliseconds before the first retry for API calls. Subsequent retries use exponential backoff.
+ * @type number
+ * @min 100
+ * @default 500
+ *
  * @param ---- Hotkey Options ----
  * @default
  *
@@ -414,6 +431,9 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
     $.gameOriginalLanguage = String($.Parameters['Game Original Language'] || 'ja');
     $.logLevel = parseInt($.Parameters['LogLevel'] || 2, 10);
 
+    $.maxRetriesOnError = parseInt($.Parameters['Max Retries On Error'] || 2, 10);
+    $.initialRetryDelayMs = parseInt($.Parameters['Initial Retry Delay Ms'] || 500, 10);
+
     $.toggleHotkeyKey = String($.Parameters['Toggle Hotkey Key'] || 'F10').toLowerCase();
     // $.toggleHotkeyModifier = String($.Parameters['Toggle Hotkey Modifier'] || '').toLowerCase();
 
@@ -529,9 +549,14 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
             if ($.machineService && this.translationServices[$.machineService]) {
                 const service = this.translationServices[$.machineService];
-                $.log(3, `Translate: Attempting machine translation for (processed): "${textToSendToService}" via ${$.machineService}`);
 
-                immediateReturnValueForDisplay = `[T] ${trimmedText}`; // Show original with [T] prefix as placeholder
+                if (service.isDisabledForSession) {
+                    $.log(2, `Translate: Machine translation service "${$.machineService}" is disabled for this session. Skipping API call for "${trimmedText}".`);
+                    // Fall through to default behavior (likely return original or [T] placeholder if that was set)
+                    // Ensure wasMachineTranslatedAttempted is false or handled correctly below
+                } else {
+                    $.log(3, `Translate: Attempting machine translation for (processed): "${textToSendToService}" via ${$.machineService}`);
+                    immediateReturnValueForDisplay = `[T] ${trimmedText}`; // Show original with [T] prefix as placeholder
 
                 // Trigger asynchronous translation of text_with_placeholders
                 service.translate(textToSendToService, $.gameOriginalLanguage, $.targetLanguage, contextInfo)
