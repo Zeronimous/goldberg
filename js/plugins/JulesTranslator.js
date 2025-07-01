@@ -205,6 +205,22 @@
  * @parent ---- Hotkey Options ----
  * @desc Optional modifier key (shift, control, alt). Leave empty for no modifier.
  * (Modifier support not fully implemented in this version, primarily for future use)
+ *
+ * @param ---- UI Options ----
+ * @default
+ *
+ * @param Available Target Languages
+ * @parent ---- UI Options ----
+ * @desc Comma-separated list of language codes to show in the language selection UI (e.g., en,es,fr,ja).
+ * @type text
+ * @default en,es,fr,de,ja,ko,zh-CN,zh-TW,pt,it,ru
+ *
+ * @param Translator Options Help Text
+ * @parent ---- UI Options ----
+ * @desc Text shown in the help window of the translator options scene.
+ * @type text
+ * @default Select target language for translation.
+ *
  * @type select
  * @option None
  * @value
@@ -271,6 +287,7 @@
  *   JulesTranslator setLang [lang]  // Changes target language (e.g., JulesTranslator setLang es)
  *                                   // This also clears the cache and reloads manual files.
  *   JulesTranslator reload          // Clears cache and reloads manual translation files.
+ *   JulesTranslator openLanguageMenu // Opens the in-game language selection menu.
  *
  * --- Plugin Commands (MZ style) ---
  * @command enable
@@ -293,6 +310,10 @@
  * @command reload
  * @text Reload Translations
  * @desc Clears the translation cache and reloads manual translation files.
+ *
+ * @command openLanguageMenu
+ * @text Open Language Menu
+ * @desc Opens the in-game language selection menu.
  *
  * --- For RPG Maker MZ ---
  * This plugin aims for MZ compatibility. MZ uses a different plugin command
@@ -436,6 +457,10 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
 
     $.toggleHotkeyKey = String($.Parameters['Toggle Hotkey Key'] || 'F10').toLowerCase();
     // $.toggleHotkeyModifier = String($.Parameters['Toggle Hotkey Modifier'] || '').toLowerCase();
+
+    const availableLanguagesParam = String($.Parameters['Available Target Languages'] || 'en,es,fr,de,ja,ko,zh-CN,zh-TW,pt,it,ru');
+    $.availableLanguages = availableLanguagesParam.split(',').map(lang => lang.trim()).filter(lang => lang);
+    $.translatorOptionsHelpText = String($.Parameters['Translator Options Help Text'] || 'Select target language for translation.');
 
 
     // Construct full path for manual translations
@@ -1401,6 +1426,15 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             $.log(2, 'JulesTranslator translations reloaded via MZ command.');
         });
 
+        PluginManager.registerCommand(pluginName, "openLanguageMenu", args => {
+            if ($.Scene_TranslatorOptions) {
+                SceneManager.push($.Scene_TranslatorOptions);
+                $.log(2, 'JulesTranslator language menu opened via MZ command.');
+            } else {
+                $.log(1, 'Scene_TranslatorOptions is not defined. Make sure component file is included.');
+            }
+        });
+
     } else {
         // --- Fallback to MV Style Plugin Command Handler ---
         $.log(2, "MV environment detected or registerCommand not found. Using MV plugin command system.");
@@ -1432,6 +1466,14 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
                         if (MyTranslator.cache) MyTranslator.cache.clear();
                         MyTranslator.loadManualTranslations();
                         $.log(2, 'JulesTranslator translations reloaded via MV plugin command.');
+                        break;
+                    case 'openlanguagemenu': // ensure lowercase for MV command parsing
+                        if ($.Scene_TranslatorOptions) {
+                            SceneManager.push($.Scene_TranslatorOptions);
+                            $.log(2, 'JulesTranslator language menu opened via MV command.');
+                        } else {
+                            $.log(1, 'Scene_TranslatorOptions is not defined. Make sure component file is included.');
+                        }
                         break;
                     default:
                         $.log(1, `JulesTranslator unknown subcommand (MV): ${subCommand}`);
