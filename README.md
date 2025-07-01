@@ -58,11 +58,27 @@ Este método utiliza un script de PowerShell para facilitar la instalación del 
     Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
     ```
     Responde 'Y' (Sí) o 'A' (Sí a todo) si se te pregunta.
-*   **Archivos Necesarios**: Debes tener los siguientes archivos y la carpeta en una misma ubicación (ej. una carpeta "JulesTranslatorInstaller" en tu escritorio):
+*   **Archivos Necesarios**: Debes tener los siguientes archivos y la carpeta en una misma ubicación (ej. una carpeta "JulesTranslatorInstaller" en tu escritorio). Esta será tu "carpeta de instalación del plugin":
     *   `InstallOrUpdateJulesTranslator.ps1` (el script de instalación)
     *   `configJules.json` (debes crearlo renombrando `configJules.json.example` y editando sus valores)
     *   `JulesTranslator.js` (el archivo principal del plugin)
     *   La carpeta `JulesTranslator/` (conteniendo todos los módulos `.js` auxiliares y tu subcarpeta `translations/` si usas traducciones manuales).
+
+    Estructura de ejemplo para tu "carpeta de instalación del plugin":
+    ```
+    JulesTranslatorInstaller/
+    ├── InstallOrUpdateJulesTranslator.ps1
+    ├── configJules.json
+    ├── JulesTranslator.js
+    └── JulesTranslator/
+        ├── DataManagerHooks.js
+        ├── Scene_TranslatorOptions.js
+        ├── TranslationServices.js
+        ├── WindowHooks.js
+        ├── Window_TranslatorLanguage.js
+        └── translations/
+            └── (ej: es_en.json, ja_en.json, etc.)
+    ```
 
 **Pasos:**
 
@@ -82,7 +98,7 @@ Este método utiliza un script de PowerShell para facilitar la instalación del 
             *   Revisa todos los demás parámetros listados en `configJules.json` y ajústalos según la documentación (ver Sección 4 de este README para una descripción detallada de cada parámetro).
     *   **`scriptSettings.gamePath`**:
         *   Puedes pegar aquí la ruta completa a la carpeta raíz de tu juego RPG Maker (la carpeta que contiene `Game.exe` o `index.html`, y usualmente una subcarpeta `www` o directamente `js`).
-        *   Ejemplo: `"C:/Juegos/MiJuegoRPG"` o `"D:/SteamLibrary/steamapps/common/OtroJuego/www"`.
+        *   Ejemplo: `"C:/Juegos/MiJuegoRPG"` o `"D:/SteamLibrary/steamapps/common/OtroJuego/www"`. (Nota: Usa barras `/` o barras dobles `\\\\` para las rutas en JSON).
         *   Si dejas el valor por defecto o un placeholder, el script te pedirá la ruta interactivamente cuando lo ejecutes.
 
 3.  **Ejecuta el Script de PowerShell**:
@@ -103,64 +119,61 @@ Este método utiliza un script de PowerShell para facilitar la instalación del 
 **Notas Importantes para el Método del Script:**
 
 *   **Orden de Plugins**: Si `JulesTranslator` es añadido por primera vez, el script lo colocará al final de la lista en `plugins.js`. Si necesitas un orden específico para compatibilidad con otros plugins, y tienes acceso al editor del proyecto, es mejor ajustar el orden allí. Para juegos compilados, cambiar el orden requeriría editar `plugins.js` manualmente.
+*   **Copias de Seguridad**: Siempre es buena idea tener una copia de seguridad de tu juego compilado antes de modificar sus archivos. El script no crea copias de seguridad de `plugins.js` automáticamente.
 *   **Actualizaciones del Plugin**: Para actualizar el plugin JulesTranslator a una nueva versión, simplemente reemplaza `JulesTranslator.js` y el contenido de la carpeta `JulesTranslator/` en la carpeta donde tienes el script `.ps1` (tu carpeta de "instalación" local). Luego, vuelve a ejecutar el script apuntando a la carpeta de tu juego. Esto sobrescribirá los archivos del plugin en el juego y actualizará los parámetros en `plugins.js` si los cambiaste en tu `configJules.json`.
 
 ## 4. Configuración de Parámetros del Plugin
 
-Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el Método A de instalación) o en el archivo `configJules.json` (si usas el Método B con el script de PowerShell).
+Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el Método A de instalación) o en el archivo `configJules.json` (si usas el Método B con el script de PowerShell). Los valores en `configJules.json` deben ser strings, incluso para booleanos o números, ya que así los maneja el sistema de parámetros de RPG Maker.
 
 *   **`Target Language`**:
-    *   El código del idioma al que quieres traducir el juego (ej. `en` para inglés, `es` para español, `ja` para japonés).
-    *   Valor por defecto: `en`.
+    *   El código del idioma al que quieres traducir el juego (ej. `"en"` para inglés, `"es"` para español).
+    *   Valor por defecto: `"en"`.
 
 *   **`Machine Translation Service`**:
-    *   Elige el servicio de traducción automática preferido.
-    *   Opciones: `None` (o `""` en JSON), `Google Translate` (`"google"`), `DeepL` (`"deepl"`).
-    *   Si se elige `None`, solo se usarán traducciones manuales.
-    *   Valor por defecto: `""` (None).
+    *   Elige el servicio de traducción automática.
+    *   Opciones: `""` (None), `"google"`, `"deepl"`.
+    *   Valor por defecto: `""`.
 
 *   **`Google API Key`**:
-    *   Tu clave API para Google Cloud Translation API, si seleccionaste "Google Translate".
-    *   Necesitas tener una cuenta de Google Cloud Platform y habilitar la API de Traducción.
+    *   Tu clave API para Google Cloud Translation API.
     *   Valor por defecto: `""`.
 
 *   **`DeepL API Key`**:
-    *   Tu clave de autenticación para la API de DeepL, si seleccionaste "DeepL".
-    *   Compatible con claves API de DeepL Free y DeepL Pro.
+    *   Tu clave de autenticación para la API de DeepL.
     *   Valor por defecto: `""`.
 
 *   **`Enable Text Hooking`**:
-    *   Habilita la traducción del texto que se muestra dinámicamente en las ventanas del juego (diálogos, menús, ayuda, etc.).
+    *   Habilita la traducción de texto dinámico en ventanas.
     *   Valores: `"true"` o `"false"`.
     *   Valor por defecto: `"true"`.
 
 *   **`Enable Data File Translation`**:
-    *   Habilita la traducción del texto contenido en los archivos de datos del juego (ej. `Actors.json`, `Items.json`).
+    *   Habilita la traducción de archivos de datos.
     *   Valores: `"true"` o `"false"`.
     *   Valor por defecto: `"true"`.
 
 ---
 **`---- Data File Translation Options ----`**
-(Estos parámetros solo tienen efecto si `Enable Data File Translation` es `"true"`)
+(Solo tienen efecto si `Enable Data File Translation` es `"true"`)
 
-*   **`Translate Actors.json`**: Traduce nombres, apodos y perfiles de actores. (Default: `"true"`)
-*   **`Translate Classes.json`**: Traduce nombres de clases. (Default: `"true"`)
-*   **`Translate Skills.json`**: Traduce nombres, descripciones y mensajes de habilidades. (Default: `"true"`)
-*   **`Translate Items.json`**: Traduce nombres y descripciones de objetos. (Default: `"true"`)
-*   **`Translate Weapons.json`**: Traduce nombres y descripciones de armas. (Default: `"true"`)
-*   **`Translate Armors.json`**: Traduce nombres y descripciones de armaduras. (Default: `"true"`)
-*   **`Translate Enemies.json`**: Traduce nombres de enemigos. (Default: `"true"`)
-*   **`Translate States.json`**: Traduce nombres y mensajes de estados. (Default: `"true"`)
-*   **`Translate System.json`**: Traduce el título del juego, términos del sistema, etc. (Default: `"true"`)
-*   **`Translate MapInfos.json`**: Traduce los nombres de los mapas. (Default: `"true"`)
-*   **`Translate Event Text`**: Traduce el texto de los comandos de evento. (Default: `"true"`)
-*   **`Translate Troops.json`**: Traduce nombres de tropas. (Default: `"true"`)
+*   **`Translate Actors.json`**: (Default: `"true"`)
+*   **`Translate Classes.json`**: (Default: `"true"`)
+*   **`Translate Skills.json`**: (Default: `"true"`)
+*   **`Translate Items.json`**: (Default: `"true"`)
+*   **`Translate Weapons.json`**: (Default: `"true"`)
+*   **`Translate Armors.json`**: (Default: `"true"`)
+*   **`Translate Enemies.json`**: (Default: `"true"`)
+*   **`Translate States.json`**: (Default: `"true"`)
+*   **`Translate System.json`**: (Default: `"true"`)
+*   **`Translate MapInfos.json`**: (Default: `"true"`)
+*   **`Translate Event Text`**: (Default: `"true"`)
+*   **`Translate Troops.json`**: (Default: `"true"`)
 
 ---
 **`---- Caching Options ----`**
 
 *   **`Enable Translation Cache`**:
-    *   Guarda las traducciones para mejorar rendimiento y reducir llamadas API.
     *   Valores: `"true"` o `"false"`.
     *   Valor por defecto: `"true"`.
 
@@ -168,7 +181,7 @@ Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el
 **`---- Manual Translations Options ----`**
 
 *   **`Manual Translation Folder`**:
-    *   Nombre de la carpeta (dentro de `js/plugins/JulesTranslator/`) para los archivos JSON de traducción manual.
+    *   Nombre de la carpeta para archivos JSON manuales (dentro de `js/plugins/JulesTranslator/`).
     *   Valor por defecto: `"translations"`.
 
 *   **`Game Original Language`**:
@@ -179,9 +192,8 @@ Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el
 **`---- Debug Options ----`**
 
 *   **`Log Level`**:
-    *   Nivel de detalle para logs en la consola.
-    *   Opciones: `"0"` (None), `"1"` (Error), `"2"` (Info), `"3"` (Debug).
-    *   Valor por defecto: `"2"` (Info).
+    *   Nivel de detalle para logs en la consola. Opciones: `"0"` (None), `"1"` (Error), `"2"` (Info), `"3"` (Debug).
+    *   Valor por defecto: `"2"`.
 
 ---
 **`---- Machine Translation Options ----`**
@@ -209,7 +221,7 @@ Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el
 **`---- UI Options ----`**
 
 *   **`Available Target Languages`**:
-    *   Lista de códigos de idioma separados por comas para el menú de selección en juego.
+    *   Lista de códigos de idioma (separados por comas) para el menú en juego.
     *   Ejemplo: `"en,es,fr,ja"`.
     *   Valor por defecto: `"en,es,fr,de,ja,ko,zh-CN,zh-TW,pt,it,ru"`.
 
@@ -219,27 +231,77 @@ Estos parámetros se configuran en el Gestor de Plugins de RPG Maker (si usas el
 
 ## 5. Uso de Traducciones Manuales
 
-(Esta sección permanece igual que antes)
-...
+Si prefieres proporcionar tus propias traducciones o corregir las automáticas, puedes usar archivos de traducción manual.
+
+1.  **Crea la Carpeta**: Dentro de `js/plugins/JulesTranslator/` (que estará en la carpeta de tu juego después de ejecutar el script de instalación, o en tu carpeta de "instalación" del plugin), crea la carpeta especificada en el parámetro `Manual Translation Folder` (por defecto, `translations`).
+2.  **Nombra los Archivos**: Los archivos JSON deben seguir el formato `[original_lang]_[target_lang].json`.
+    *   `[original_lang]` es el valor del parámetro `Game Original Language`.
+    *   `[target_lang]` es el código del idioma al que quieres traducir (puede ser el mismo que `Target Language` o cualquier otro que configures mediante comandos de plugin).
+    *   **Ejemplo**: Si tu juego está en japonés (`ja`) y quieres traducir a inglés (`en`), el archivo se llamará `ja_en.json` y estará en `js/plugins/JulesTranslator/translations/ja_en.json`.
+3.  **Formato JSON**: El archivo debe ser un objeto JSON donde las claves son el texto original y los valores son el texto traducido.
+    ```json
+    {
+      "こんにちは世界": "Hello World",
+      "冒険が始まる！": "The adventure begins!",
+      "ポーション": "Potion",
+      "\\N[1]はポーションを使った。": "\\N[1] used a Potion."
+    }
+    ```
+    *   **Importante**: Los códigos de escape de RPG Maker (como `\N[1]`, `\V[2]`, `\C[3]`) deben incluirse tal cual en el texto original (clave) y en el texto traducido (valor) si deseas que se conserven y funcionen. El plugin extrae estos códigos antes de enviarlos a un servicio de MT, pero para las traducciones manuales, eres responsable de mantenerlos.
+
+El plugin cargará el archivo de traducción manual correspondiente al `Game Original Language` y al `Target Language` actual al iniciarse y cada vez que se cambie el `Target Language`. Si usas el script de instalación, asegúrate de que tu carpeta `translations/` esté junto a los demás archivos del plugin para que se copie correctamente al juego.
 
 ## 6. Comandos de Plugin
 
-(Esta sección permanece igual que antes)
-...
+Puedes usar comandos de plugin en tus eventos para controlar el traductor durante el juego.
+
+**Estilo MV:**
+
+*   `JulesTranslator enable`
+    *   Habilita la funcionalidad de traducción.
+*   `JulesTranslator disable`
+    *   Deshabilita la funcionalidad de traducción. Los textos se mostrarán en su idioma original.
+*   `JulesTranslator setLang [codigo_idioma]`
+    *   Cambia el idioma de destino. Ejemplo: `JulesTranslator setLang es`.
+    *   Esto limpiará la caché de traducción y recargará los archivos de traducción manual para el nuevo par de idiomas.
+*   `JulesTranslator reload`
+    *   Limpia la caché de traducción y recarga los archivos de traducción manual para el idioma actual.
+*   `JulesTranslator openLanguageMenu`
+    *   Abre la escena de selección de idioma en el juego.
+
+**Estilo MZ:**
+Usa los comandos registrados en el editor de plugins de MZ:
+
+*   **Enable Translator**: Habilita la traducción.
+*   **Disable Translator**: Deshabilita la traducción.
+*   **Set Target Language**:
+    *   Argumento `Language Code`: El código del idioma al que cambiar (ej. `es`).
+*   **Reload Translations**: Limpia caché y recarga archivos manuales.
+*   **Open Language Menu**: Abre la escena de selección de idioma.
 
 ## 7. Notas Importantes sobre Traducción Asíncrona
 
-(Esta sección permanece igual que antes)
-...
+*   **Traducción Automática es Asíncrona**: Cuando se utilizan servicios de traducción automática (Google, DeepL), el juego solicita traducciones a un servidor externo. Este proceso no es instantáneo.
+*   **Visualización Inicial**: Los textos que dependen de la traducción automática podrían mostrarse brevemente en su idioma original. Una vez que la traducción se recibe del servidor, el elemento de texto en el juego se actualizará. Esto es para evitar que el juego se congele mientras espera la respuesta de la API.
+*   **Cambio de Idioma**: Cambiar el idioma a través del menú de opciones en el juego intentará refrescar la mayoría de los elementos de texto en pantalla. Sin embargo, para un refresco completo de todos los elementos de la interfaz de usuario, especialmente aquellos gestionados por escenas complejas u otros plugins, ocasionalmente podría ser necesario un cambio de escena (por ejemplo, reingresar a un menú o mapa).
+*   **Traducción de Datos**: Los datos del juego (objetos, habilidades, actores, etc.) también se traducen. Si se utiliza traducción automática para estos, el texto original podría usarse inicialmente si la traducción aún no está disponible cuando se accede por primera vez a los datos. Los datos se actualizarán en segundo plano una vez traducidos.
 
 ## 8. Solución de Problemas Comunes / FAQ (Básico)
 
-(Esta sección permanece igual que antes)
-...
+*   **El texto no se traduce**:
+    *   Verifica que el plugin esté activado (`status: true` en `plugins.js` o activado en el Plugin Manager).
+    *   Asegúrate de que `Enable Text Hooking` (para UI) y/o `Enable Data File Translation` (para datos) estén configurados a `"true"`.
+    *   Si usas MT, comprueba que el servicio esté seleccionado y la clave API sea correcta y válida. Revisa la consola del desarrollador (F8 o F12 durante el juego) para mensajes de error de la API.
+    *   Si usas traducciones manuales, verifica que el nombre del archivo (`[original]_[destino].json`) y su ubicación (`js/plugins/JulesTranslator/translations/`) sean correctos, y que el JSON esté bien formateado. El `Game Original Language` y `Target Language` deben coincidir con los nombres de archivo.
+*   **Algunos textos específicos no se traducen**:
+    *   Algunos textos podrían ser dibujados por otros plugins de maneras que JulesTranslator no puede interceptar fácilmente.
+    *   El texto en imágenes o partes muy personalizadas de la UI podría no ser traducible por este plugin.
+*   **Errores en la consola**: Revisa los mensajes de error. Si son de JulesTranslator, a menudo indican un problema de configuración o de API.
+*   **El script de PowerShell no funciona**:
+    *   Asegúrate de haber ajustado la política de ejecución de PowerShell (`Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`).
+    *   Verifica que todos los archivos necesarios (`.ps1`, `configJules.json`, `JulesTranslator.js`, carpeta `JulesTranslator/`) estén en el mismo directorio desde donde ejecutas el script.
+    *   Comprueba que la ruta al juego en `configJules.json` o la que introduces sea correcta.
 
 ---
 
 ¡Gracias por usar JulesTranslator!
-```
-
-He reestructurado la sección de Instalación para presentar ambos métodos y luego he añadido la nueva sección 3.1 con todos los detalles del script de PowerShell. También he revisado la sección 4 para indicar que los parámetros se configuran en el Gestor de Plugins O en `configJules.json`, y he asegurado que los valores de ejemplo en la descripción de los parámetros sean strings cuando corresponda (ya que así los lee el Plugin Manager y el script los pasará como strings también).

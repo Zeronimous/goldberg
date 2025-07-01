@@ -18,11 +18,9 @@ Function Write-Log ($Message, $Level = "INFO") {
     $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $FormattedMessage = "[$Timestamp][$Level] $Message"
     Write-Host $FormattedMessage
-    if ($script:config -and $script:config.scriptSettings.verboseLogging -ne $true -and $Level -eq "DEBUG") {
-        # No mostrar DEBUG si verboseLogging no está activo
-    } else {
-        # Futura escritura a archivo de log si se desea
-    }
+    # Implementar registro a archivo si se desea en el futuro
+    # if ($script:config -and $script:config.scriptSettings.verboseLogging -ne $true -and $Level -eq "DEBUG") {
+    # } else { }
 }
 
 # --- 1. Leer Configuración ---
@@ -65,11 +63,10 @@ while (-not ($gamePath -and (Test-Path $gamePath))) {
     $gamePath = Read-Host -Prompt "Por favor, introduce la ruta completa a la carpeta raíz de tu juego RPG Maker (ej. C:/Games/MyGame)"
     if (-not (Test-Path $gamePath)) {
         Write-Warning "La ruta '$gamePath' no existe. Inténtalo de nuevo."
-        $gamePath = $null # Reset para que el bucle continúe
+        $gamePath = $null
     }
 }
 
-# Determinar la ruta base de los assets del juego (www o raíz)
 $gameJsPluginsPath = ""
 $gamePluginsJsFilePath = ""
 
@@ -81,7 +78,7 @@ if (Test-Path (Join-Path -Path $gamePath -ChildPath "www/js/plugins.js")) {
     $gamePluginsJsFilePath = Join-Path -Path $gamePath -ChildPath "js/plugins.js"
 } else {
     Write-Error "No se pudo encontrar 'js/plugins.js' o 'www/js/plugins.js' en la ruta del juego: $gamePath"
-    Write-Error "Asegúrate de que la ruta es la carpeta raíz del juego RPG Maker (la que contiene Game.exe o index.html)."
+    Write-Error "Asegúrate de que la ruta es la carpeta raíz del juego RPG Maker."
     exit 1
 }
 Write-Log "Ruta de plugins del juego detectada: $gameJsPluginsPath"
@@ -103,7 +100,10 @@ try {
     Write-Log "Copiado '$PluginFileName' a '$gameJsPluginsPath'."
 
     $destinationPluginFolder = Join-Path -Path $gameJsPluginsPath -ChildPath $PluginFolderName
-    Copy-Item -Path $LocalPluginFolderPath -Destination $destinationPluginFolder -Recurse -Force -ErrorAction Stop
+    if (Test-Path $destinationPluginFolder) {
+        Write-Log "La carpeta de destino del plugin '$destinationPluginFolder' ya existe. Se reemplazarán sus contenidos."
+    }
+    Copy-Item -Path $LocalPluginFolderPath\* -Destination $destinationPluginFolder -Recurse -Force -ErrorAction Stop
     Write-Log "Copiada carpeta '$PluginFolderName' a '$destinationPluginFolder'."
 } catch {
     Write-Error "Error copiando los archivos del plugin al directorio del juego."
@@ -113,40 +113,60 @@ try {
 
 # --- 4. Leer y Modificar plugins.js ---
 Write-Log "Modificando '$gamePluginsJsFilePath'..."
-$pluginsJsContent = Get-Content -Raw -Path $gamePluginsJsFilePath -ErrorAction SilentlyContinue
-if (-not $pluginsJsContent) {
+$pluginsJsFullContent = Get-Content -Raw -Path $gamePluginsJsFilePath -ErrorAction SilentlyContinue
+if (-not $pluginsJsFullContent) {
     Write-Error "No se pudo leer '$gamePluginsJsFilePath'."
     exit 1
 }
 
-# Guardar y remover las líneas var RPGMaker... si existen (común en MV)
-$rpgMakerVarLines = ""
-if ($pluginsJsContent.StartsWith("var RPGMakerName")) {
-    $lines = $pluginsJsContent -split [System.Environment]::NewLine
-    $jsonStartIndex = 0
-    for ($i = 0; $i -lt $lines.Length; $i++) {
-        if ($lines[$i].TrimStart().StartsWith("[")) {
-            $jsonStartIndex = $i
+$jsonArrayString = $null
+$prefixContent = ""
+
+$jsonStartIndex = $pluginsJsFullContent.IndexOf('[')
+if ($jsonStartIndex -lt 0) {
+    Write-Error "No se pudo encontrar el inicio del array JSON ('[') en '$gamePluginsJsFilePath'."
+    exit 1
+}
+
+$jsonEndIndex = -1
+$openBrackets = 0
+for ($i = $jsonStartIndex; $i -lt $pluginsJsFullContent.Length; $i++) {
+    if ($pluginsJsFullContent[$i] -eq '[') {
+        $openBrackets++
+    } elseif ($pluginsJsFullContent[$i] -eq ']') {
+        $openBrackets--
+        if ($openBrackets -eq 0) {
+            $jsonEndIndex = $i
             break
         }
-        $rpgMakerVarLines += $lines[$i] + [System.Environment]::NewLine
     }
-    $pluginsJsonString = $lines[$jsonStartIndex..($lines.Length -1)] | Out-String
-} else {
-    $pluginsJsonString = $pluginsJsContent
+}
+
+if ($jsonEndIndex -lt 0) {
+    Write-Error "No se pudo encontrar el final del array JSON (']') correspondiente en '$gamePluginsJsFilePath'."
+    exit 1
+}
+
+$prefixContent = $pluginsJsFullContent.Substring(0, $jsonStartIndex)
+$jsonArrayString = $pluginsJsFullContent.Substring($jsonStartIndex, $jsonEndIndex - $jsonStartIndex + 1)
+
+if (-not ($jsonArrayString.TrimStart().StartsWith("[") -and $jsonArrayString.TrimEnd().EndsWith("]"))) {
+    Write-Error "La extracción del array JSON de '$gamePluginsJsFilePath' falló. Contenido extraído: $jsonArrayString"
+    exit 1
 }
 
 $pluginsList = $null
 try {
-    $pluginsList = $pluginsJsonString | ConvertFrom-Json -ErrorAction Stop
+    $pluginsList = $jsonArrayString | ConvertFrom-Json -ErrorAction Stop
 } catch {
-    Write-Error "Error parseando '$gamePluginsJsFilePath'. Asegúrate de que su contenido JSON es válido (después de las líneas 'var RPGMaker...')."
+    Write-Error "Error parseando la sección JSON de '$gamePluginsJsFilePath'. Asegúrate de que es un JSON válido."
+    Write-Error "JSON String que se intentó parsear: $jsonArrayString"
     Write-Error $_.Exception.Message
     exit 1
 }
 
 if ($null -eq $pluginsList -or $pluginsList.GetType().Name -ne "Object[]") {
-     Write-Error "El contenido de '$gamePluginsJsFilePath' no parece ser un array de plugins JSON válido."
+     Write-Error "El contenido JSON de '$gamePluginsJsFilePath' no parece ser un array de plugins válido."
      exit 1
 }
 
@@ -154,16 +174,15 @@ $pluginEntry = $pluginsList | Where-Object { $_.name -eq $PluginName } | Select-
 
 if ($pluginEntry) {
     Write-Log "Plugin '$PluginName' encontrado en plugins.js. Actualizando parámetros..."
-    $pluginEntry.status = $true # Asegurar que esté activo
+    $pluginEntry.status = $true
     $pluginEntry.parameters = $pluginParameters
 } else {
     Write-Log "Plugin '$PluginName' no encontrado en plugins.js. Añadiendo nueva entrada..."
-    $pluginDescription = "Provides automatic and manual translation capabilities for RPG Maker MV/MZ games." # Tomar de @plugindesc
-    # Intentar extraer la descripción del archivo .js del plugin
+    $pluginDescription = "Provides automatic and manual translation capabilities for RPG Maker MV/MZ games."
     try {
         $jsContent = Get-Content $LocalPluginJsPath -ErrorAction SilentlyContinue
-        if ($jsContent -match "(?s)\* @plugindesc (.*?)\n") {
-            $pluginDescription = $Matches[1].Trim()
+        if ($jsContent -match "(?s)\* @plugindesc (.*?)\n") { # (?s) para que . coincida con newline
+            $pluginDescription = ($Matches[1].Trim() -replace '\s+', ' ') # Limpiar saltos de línea en descripción
         }
     } catch {}
 
@@ -176,26 +195,19 @@ if ($pluginEntry) {
     $pluginsList += $newPluginEntry
 }
 
-# Convertir de nuevo a JSON
-# Para MV, el JSON es compacto. Para MZ, es indentado.
-# ConvertTo-Json por defecto indenta. Para MV, podríamos necesitar -Compress si causa problemas,
-# pero usualmente MV también puede leer JSON indentado.
-# El formato estándar de plugins.js de MV es una sola línea después de las variables RPGMaker.
-# El formato de MZ es un JSON indentado.
-# Intentaremos -Compress para MV y formato indentado para MZ.
-# Sin embargo, la robustez es más importante que el formato exacto si el motor lo lee bien.
-# Por ahora, usaremos el formato por defecto de ConvertTo-Json (indentado).
-# Si es estrictamente necesario un formato compacto para MV, se podría hacer:
-# $updatedPluginsJsonString = $pluginsList | ConvertTo-Json -Compress
-$updatedPluginsJsonString = $pluginsList | ConvertTo-Json -Depth 5
+$updatedPluginsJsonString = $pluginsList | ConvertTo-Json -Depth 5 # Profundidad suficiente para parámetros anidados si los hubiera
 
+$finalPluginsJsContent = $prefixContent + $updatedPluginsJsonString
 
-# Re-añadir las líneas var RPGMaker...
-$finalPluginsJsContent = $rpgMakerVarLines + $updatedPluginsJsonString
+# Verificar si el contenido original después del array JSON tenía algo más (ej. un punto y coma)
+$suffixContent = $pluginsJsFullContent.Substring($jsonEndIndex + 1)
+if ($suffixContent.Trim() -ne "") {
+    $finalPluginsJsContent += $suffixContent
+}
+
 
 try {
-    # Guardar con codificación UTF-8 sin BOM, que es lo común para estos archivos.
-    [System.IO.File]::WriteAllLines($gamePluginsJsFilePath, $finalPluginsJsContent, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($gamePluginsJsFilePath, $finalPluginsJsContent, (New-Object System.Text.UTF8Encoding($false)))
     Write-Log "'$gamePluginsJsFilePath' actualizado correctamente."
 } catch {
     Write-Error "Error escribiendo los cambios a '$gamePluginsJsFilePath'."
@@ -208,7 +220,6 @@ Write-Log "Recuerda configurar tus claves API y otros detalles en '$ConfigFilePa
 Write-Log "Si el juego no carga o muestra errores relacionados con plugins, revisa '$gamePluginsJsFilePath' manualmente."
 Write-Log "Es posible que necesites ajustar el orden de $PluginName en esa lista si hay conflictos con otros plugins."
 
-# Pausa opcional para que el usuario vea la salida antes de que la ventana se cierre si se ejecuta haciendo doble clic.
 if ($Host.Name -eq "ConsoleHost") {
     Read-Host -Prompt "Presiona Enter para salir"
 }
