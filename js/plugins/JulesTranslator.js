@@ -1282,33 +1282,35 @@ var JulesTranslator = JulesTranslator || {}; // Namespace for plugin parameters 
             $.log(3, "Finished translating Weapons Data.");
         },
 
-        translateMapInfosData: function(mapInfosData) {
+        translateMapInfosData: function(mapInfosData) { // mapInfosData es $dataMapInfos
             $.log(3, "Translating Map Infos Data ($dataMapInfos)...");
-            // $dataMapInfos is an array, can have null elements (especially at index 0).
-            for (let i = 0; i < mapInfosData.length; i++) { // Start from 0 as even index 0 might be used by some plugins, though typically it's null for unused map ID 0.
-                const mapInfo = mapInfosData[i];
-                if (mapInfo && mapInfo.name) {
-                    mapInfo.name = this.translate(mapInfo.name, { context: `$dataMapInfos[${i}].name` });
+            for (let i = 0; i < mapInfosData.length; i++) {
+                const mapInfo = mapInfosData[i]; // mapInfo es $dataMapInfos[i]
+                if (mapInfo) { // Puede haber nulls, especialmente en el índice 0
+                    const baseContext = `$dataMapInfos[${i}]`;
+                    this._translateAndRegisterDataProperty_v2(mapInfo, 'name', `${baseContext}.name`);
+                    // 'displayName' es otro campo que a veces se usa y podría necesitar traducción.
+                    // Por defecto, si displayName está vacío, el juego usa 'name'.
+                    // Si se quiere traducir displayName explícitamente si existe:
+                    if (mapInfo.hasOwnProperty('displayName')) {
+                         this._translateAndRegisterDataProperty_v2(mapInfo, 'displayName', `${baseContext}.displayName`);
+                    }
                 }
             }
             $.log(3, "Finished translating Map Infos Data.");
         },
 
-        translateTroopsData: function(troopsData) {
+        translateTroopsData: function(troopsData) { // troopsData es $dataTroops
             $.log(3, "Translating Troops Data ($dataTroops)...");
-            // $dataTroops is an array, index 0 is null.
             for (let i = 1; i < troopsData.length; i++) {
-                const troop = troopsData[i];
-                if (troop && troop.name) {
-                    troop.name = this.translate(troop.name, { context: `$dataTroops[${i}].name` });
+                const troop = troopsData[i]; // troop es $dataTroops[i]
+                if (troop) {
+                    const baseContext = `$dataTroops[${i}]`;
+                    this._translateAndRegisterDataProperty_v2(troop, 'name', `${baseContext}.name`);
+                    // Los eventos de la tropa (troop.pages) se procesan cuando se carga la tropa para la batalla,
+                    // o si se accede a ellos de otra manera. La traducción de nombres de enemigos dentro
+                    // de la tropa (troop.members) se basa en $dataEnemies.
                 }
-                // Note: Troop event pages are also part of the troop data.
-                // If these event pages need to be translated *when $dataTroops is loaded*,
-                // we would need to call translateEventList here.
-                // However, battle events are often dynamically composed or map-specific.
-                // For now, only translating troop.name.
-                // If troop-specific common events are used, they are in $dataCommonEvents.
-                // If map-specific battle events, they are in $dataMapXXX.
             }
             $.log(3, "Finished translating Troops Data.");
         },
